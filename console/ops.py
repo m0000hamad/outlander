@@ -265,11 +265,28 @@ def apply_forwarding() -> tuple[bool, str]:
 
 def patch_panel_route() -> tuple[bool, str]:
     db = ROOT / "data/x-ui/x-ui.db"
-    if not db.exists():
-        return False, "panel database not found - open the panel once first"
     data = render.load(ROOT)
     env = render.read_env(ROOT)
     outbound, rule = render.panel_fragments(data, env)
+
+    if not panel.has_legacy_template(db):
+        base = f"http://127.0.0.1:{env.get('PANEL_PORT', '2053')}"
+        try:
+            summary = panel.patch_api(
+                base,
+                env.get("PANEL_USERNAME", "admin"),
+                env.get("PANEL_PASSWORD", ""),
+                outbound,
+                rule,
+            )
+        except panel.PanelError as exc:
+            return False, str(exc)
+        return True, "panel routed through the gateway via the 3.x API (" + ", ".join(
+            str(tag) for tag in summary["outbounds"]
+        ) + ")"
+
+    if not db.exists():
+        return False, "panel database not found - open the panel once first"
     running = container_state("panel").get("state") == "running"
     stopped = False
     try:

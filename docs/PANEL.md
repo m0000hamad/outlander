@@ -77,13 +77,24 @@ rules (`sudo bash scripts/forward-apply.sh`).
 
 ## 3. Routing through the gateway
 
-`make panel` writes two things into the panel's Xray template:
+`make panel` adds two things to the panel's Xray template:
 
 ```json
 {"tag": "ol-gateway", "protocol": "socks", "settings": {"servers": [{"address": "127.0.0.1", "port": 10808}]}}
 ```
 
 and a final catch-all rule `{"type": "field", "network": "tcp,udp", "outboundTag": "ol-gateway"}`.
+
+How it is applied depends on the panel generation, and both are automatic:
+
+| panel | mechanism |
+|---|---|
+| 3.x (`/panel/api/xray/update`) | logs in with `PANEL_USERNAME`/`PANEL_PASSWORD`, posts the merged template, restarts Xray |
+| 2.x (classic x-ui) | stops the panel, updates `settings.xrayTemplateConfig` in SQLite, starts it again |
+
+The 3.x path needs the panel reachable on `127.0.0.1:$PANEL_PORT` (it is, in host networking) and the
+credentials from `.env`. If the panel login is protected by 2FA, use the panel UI instead: **Settings
+→ Xray Configs**, paste the two fragments, save.
 
 To verify, open **Settings → Xray Configs** and look for the `ol-gateway` outbound and the rule. If
 a panel upgrade regenerates the template, run `make panel` again.

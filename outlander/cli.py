@@ -160,6 +160,26 @@ def cmd_panel_patch(args: argparse.Namespace) -> int:
     inventory = _load(root)
     env = render.read_env(root)
     db = Path(args.db) if args.db else root / "data/x-ui/x-ui.db"
+    outbound, rule = render.panel_fragments(inventory, env)
+
+    legacy = bool(args.db) or panel.has_legacy_template(db)
+    if not legacy:
+        base = args.base or f"http://127.0.0.1:{env.get('PANEL_PORT', '2053')}"
+        try:
+            summary = panel.patch_api(
+                base,
+                env.get("PANEL_USERNAME", "admin"),
+                env.get("PANEL_PASSWORD", ""),
+                outbound,
+                rule,
+            )
+        except panel.PanelError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(f"panel template patched through the 3.x API ({base})")
+        print(f"outbounds: {', '.join(str(tag) for tag in summary['outbounds'])} | routing rules: {summary['rules']}")
+        return 0
+
     if not db.exists():
         print(f"error: {db} not found - start the panel once so it creates its database", file=sys.stderr)
         return 2
@@ -172,7 +192,6 @@ def cmd_panel_patch(args: argparse.Namespace) -> int:
             print("panel paused while patching")
 
     backup = None
-    outbound, rule = render.panel_fragments(inventory, env)
     try:
         backup = panel.backup(db)
         summary = panel.patch_database(db, outbound, rule)
@@ -340,7 +359,8 @@ def build_parser() -> argparse.ArgumentParser:
     panel = sub.add_parser("panel", help="panel integration")
     panel_sub = panel.add_subparsers(dest="panel_command", required=True)
     patch = panel_sub.add_parser("patch", help="route panel traffic through the gateway")
-    patch.add_argument("--db")
+    patch.add_argument("--db", help="force the classic (2.x) database patch")
+    patch.add_argument("--base", help="panel base URL for the 3.x API (default http://127.0.0.1:PANEL_PORT)")
     patch.add_argument("--no-stop", action="store_true")
     patch.set_defaults(func=cmd_panel_patch)
 
