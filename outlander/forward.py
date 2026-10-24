@@ -60,8 +60,21 @@ def _target(value: str) -> str:
     return f"{host}:{port}" if port else host
 
 
+def probe(host: str, port: int, timeout: float = 2.0) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
 def resolve_target(value: str) -> str:
-    """Turn a host[:port] target into ip[:port]; nftables cannot resolve names."""
+    """Turn a host[:port] target into ip[:port]; nftables cannot resolve names.
+
+    CDN hostnames return several anycast addresses and some of them can be
+    unreachable from this host, so the first one that accepts a TCP connection
+    is picked. Without a port the first address is used.
+    """
     host, _, port = value.partition(":")
     try:
         ipaddress.ip_address(host)
@@ -72,10 +85,20 @@ def resolve_target(value: str) -> str:
         info = socket.getaddrinfo(host, None, socket.AF_INET, socket.SOCK_STREAM)
     except socket.gaierror as exc:
         raise ValueError(f"cannot resolve forward target '{host}': {exc}") from exc
-    if not info:
+    addresses: list[str] = []
+    for entry in info:
+        address = entry[4][0]
+        if address not in addresses:
+            addresses.append(address)
+    if not addresses:
         raise ValueError(f"no IPv4 address for forward target '{host}'")
-    address = info[0][4][0]
-    return f"{address}:{port}" if port else address
+    chosen = addresses[0]
+    if port.isdigit():
+        for address in addresses:
+            if probe(address, int(port)):
+                chosen = address
+                break
+    return f"{chosen}:{port}" if port else chosen
 
 
 def normalise_rule(rule: dict) -> dict:

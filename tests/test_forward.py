@@ -1,7 +1,9 @@
 import os
+import socket
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from outlander import forward
 
@@ -89,6 +91,34 @@ def base(**overrides):
     }
     data.update(overrides)
     return data
+
+
+class ResolveTargetTests(unittest.TestCase):
+    INFOS = [
+        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("1.1.1.1", 0)),
+        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("2.2.2.2", 0)),
+    ]
+
+    def test_ip_passthrough(self):
+        self.assertEqual(forward.resolve_target("10.0.0.5:443"), "10.0.0.5:443")
+
+    def test_prefers_a_reachable_address(self):
+        with mock.patch.object(forward.socket, "getaddrinfo", return_value=self.INFOS), mock.patch.object(
+            forward, "probe", side_effect=[False, True]
+        ) as probe:
+            self.assertEqual(forward.resolve_target("cdn.example:2096"), "2.2.2.2:2096")
+            self.assertEqual(probe.call_count, 2)
+
+    def test_falls_back_to_the_first_address(self):
+        with mock.patch.object(forward.socket, "getaddrinfo", return_value=self.INFOS), mock.patch.object(
+            forward, "probe", return_value=False
+        ):
+            self.assertEqual(forward.resolve_target("cdn.example:2096"), "1.1.1.1:2096")
+
+    def test_resolution_failure(self):
+        with mock.patch.object(forward.socket, "getaddrinfo", side_effect=socket.gaierror("nope")):
+            with self.assertRaises(ValueError):
+                forward.resolve_target("nope.invalid:443")
 
 
 class RuleValidationTests(unittest.TestCase):

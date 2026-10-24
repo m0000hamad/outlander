@@ -66,9 +66,10 @@ python3 -m outlander forward render && sudo bash scripts/forward-apply.sh
 ## Forwarding to a public host
 
 The target may be an IP or a hostname (`s3.example.com:2083`). At render time the hostname is
-resolved to a single IPv4 address, because nftables cannot write a rule for a name that returns
-several addresses. If the DNS record changes, re-render: `outlander forward render && make
-forward-apply`.
+resolved to IPv4 addresses and the first one that accepts a TCP connection on the target port is
+pinned, because nftables cannot write a rule for a name and CDN anycast addresses are not all
+reachable from every host. If the target moves, re-render:
+`outlander forward render && make forward-apply`.
 
 The CLI and the console refuse a rule whose listen port already has a listener on the host (443, 2053,
 8080, ...). DNAT is evaluated before the local service, so such a forward silently hijacks it - that
