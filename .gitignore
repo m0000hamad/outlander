@@ -1,0 +1,15 @@
+.env
+config/inventory.json
+config/xray/config.json
+config/sing-box/config.json
+config/forwarding.json
+config/nftables/*.nft
+config/nftables/docker-allow.sh
+data/
+certs/
+backups/
+__pycache__/
+*.py[cod]
+*.db
+*.db.bak
+.DS_Store

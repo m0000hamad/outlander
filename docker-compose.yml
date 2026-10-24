@@ -1,0 +1,93 @@
+name: outlander
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "3"
+
+x-nofile: &nofile
+  nofile:
+    soft: 1048576
+    hard: 1048576
+
+networks:
+  ol-core:
+    name: ol-core
+    ipam:
+      config:
+        - subnet: 172.28.60.0/24
+
+services:
+  gateway:
+    image: ghcr.io/xtls/xray-core:latest
+    container_name: ol-gateway
+    restart: unless-stopped
+    command: ["run", "-c", "/etc/xray/config.json"]
+    volumes:
+      - ./config/xray:/etc/xray:ro
+    ports:
+      - "127.0.0.1:${GATEWAY_SOCKS_PORT:-10808}:10808"
+      - "127.0.0.1:${GATEWAY_HTTP_PORT:-10809}:10809"
+    ulimits: *nofile
+    logging: *logging
+    healthcheck:
+      test: ["CMD", "xray", "-test", "-c", "/etc/xray/config.json"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+    networks:
+      ol-core:
+        ipv4_address: 172.28.60.10
+
+  panel:
+    image: ghcr.io/mhsanaei/3x-ui:latest
+    container_name: ol-panel
+    restart: unless-stopped
+    depends_on:
+      - gateway
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      XRAY_VMESS_AEAD_FORCED: "false"
+      XUI_ENABLE_FAIL2BAN: "true"
+    volumes:
+      - ./data/x-ui:/etc/x-ui
+      - ./certs:/root/cert:ro
+    ulimits: *nofile
+    logging: *logging
+
+  singbox:
+    image: ghcr.io/sagernet/sing-box:latest
+    container_name: ol-singbox
+    restart: unless-stopped
+    profiles: ["extra"]
+    command: ["run", "-c", "/etc/sing-box/config.json"]
+    volumes:
+      - ./config/sing-box:/etc/sing-box:ro
+      - ./certs:/certs:ro
+    ports:
+      - "${HY2_PORT:-8443}:${HY2_PORT:-8443}/udp"
+      - "${TUIC_PORT:-8444}:${TUIC_PORT:-8444}/udp"
+    ulimits: *nofile
+    logging: *logging
+    networks:
+      ol-core:
+        ipv4_address: 172.28.60.12
+
+  haproxy:
+    image: haproxy:2.9-alpine
+    container_name: ol-haproxy
+    restart: unless-stopped
+    profiles: ["ha"]
+    volumes:
+      - ./config/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    ports:
+      - "7443:7443"
+      - "7444:7444"
+    logging: *logging
+    networks:
+      ol-core:
+        ipv4_address: 172.28.60.13

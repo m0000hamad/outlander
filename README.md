@@ -1,0 +1,59 @@
+# Outlander
+
+Chained, multi-protocol proxy infrastructure for a single Ubuntu box.
+
+- **Panel**: 3x-ui (the Sanaei panel) on host networking, so REALITY and per-client stats see real client IPs.
+- **Gateway**: a separate Xray instance that owns *egress*. It turns any share link (`vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `tuic://`) into a health-checked upstream, balances across all of them with `leastPing`, and falls back to direct.
+- **Extra protocols**: Hysteria2 (salamander obfs + port hopping) and TUIC via sing-box, bridged into the gateway over authenticated SOCKS5.
+- **Forwarding**: nftables DNAT for ports/IPs and a UDP range for port hopping, plus an optional HAProxy SNI router.
+
+Everything is generated from `config/inventory.json` by a zero-dependency Python CLI, so no upstream credentials ever land in the repository.
+
+Persian guide: [README.fa.md](README.fa.md)
+
+## Install
+
+```bash
+git clone <your-repo> outlander && cd outlander
+sudo bash scripts/install.sh --outbound 'vless://<uuid>@host:80?encryption=none&security=none&type=ws&host=cdn.example.ir&path=%2Flink%2F<token>#cdn2'
+make doctor
+```
+
+The installer provisions Docker, BBR/fq, the `.env` secrets, renders configs, starts the stack, sets panel credentials and wires the panel's outbound to the gateway.
+
+## Daily commands
+
+```bash
+python3 -m outlander add '<link>' --tag cdn3 [--group cdn] [--resolve 1.2.3.4] [--via cdn2]
+python3 -m outlander list
+python3 -m outlander rm cdn3
+python3 -m outlander render && docker compose restart gateway
+python3 -m outlander forward add --proto tcp --listen 3389 --target 10.0.0.5:3389
+python3 -m outlander forward render
+make test | make doctor | make backup | make panel
+```
+
+## Ports
+
+| Purpose | Port |
+|---|---|
+| Panel | `PANEL_PORT` (2053) |
+| REALITY | 443/tcp |
+| VLESS+WS behind CDN | 8080/tcp |
+| VLESS+WS+TLS | 8443/tcp |
+| Trojan | 2087/tcp |
+| Shadowsocks-2022 | 8388/tcp+udp |
+| Hysteria2 | 8443/udp (+ 20000-40000/udp hop) |
+| TUIC | 8444/udp |
+| Gateway SOCKS (localhost only) | 10808 |
+
+## Docs
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - how the pieces fit and why
+- [docs/PANEL.md](docs/PANEL.md) - creating inbounds in 3x-ui
+- [docs/CDN.md](docs/CDN.md) - CDN fronting, origin lockdown, parameters
+- [docs/PROTOCOLS.md](docs/PROTOCOLS.md) - which protocol to use when
+- [docs/FORWARDING.md](docs/FORWARDING.md) - ports, IPs, SNI routing
+- [docs/OPERATIONS.md](docs/OPERATIONS.md) - day-2 operations
+
+Use it in line with local law and your provider's terms.
