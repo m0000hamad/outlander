@@ -7,7 +7,7 @@ from outlander.uri import LinkError, parse
 from outlander.xray import xray_outbound
 
 CDN = (
-    "vless://21e57352-de4a-4e76-b3ed-ec38631d76a0@abr02.example.ir:80"
+    "vless://0f0f0f0f-1111-2222-3333-444444444444@abr02.example.ir:80"
     "?encryption=none&security=none&type=ws&host=link.example-cdn.ir"
     "&path=%2Flink%2FdemoToken#CDN%20Server%202"
 )
@@ -19,7 +19,7 @@ class VlessTests(unittest.TestCase):
         self.assertEqual(link.scheme, "vless")
         self.assertEqual(link.address, "abr02.example.ir")
         self.assertEqual(link.port, 80)
-        self.assertEqual(link.uuid, "21e57352-de4a-4e76-b3ed-ec38631d76a0")
+        self.assertEqual(link.uuid, "0f0f0f0f-1111-2222-3333-444444444444")
         self.assertEqual(link.network, "ws")
         self.assertEqual(link.security, "none")
         self.assertEqual(link.host, "link.example-cdn.ir")
