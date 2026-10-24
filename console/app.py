@@ -138,6 +138,13 @@ class Handler(BaseHTTPRequestHandler):
     def _lang(self) -> str:
         return i18n.normalise(self._cookie(LANG_COOKIE))
 
+    def _public_host(self) -> str:
+        configured = (ops.env().get("PUBLIC_HOST") or "").strip()
+        if configured:
+            return configured
+        parsed = urllib.parse.urlsplit(f"//{self.headers.get('Host') or ''}")
+        return parsed.hostname or "127.0.0.1"
+
     def _back(self) -> str:
         """Path of the referring page, for the language switch."""
         parsed = urllib.parse.urlparse(self.headers.get("Referer") or "")
@@ -202,12 +209,25 @@ class Handler(BaseHTTPRequestHandler):
                 )
         forwarding = ops.forwarding()
         env = ops.env()
+        public_host = self._public_host()
+        try:
+            proxies = ops.proxy_ports(public_host)
+            proxy_error = ""
+        except ops.OpError as exc:
+            proxies = []
+            proxy_error = i18n.t(lang, exc.code, **exc.params)
+        except Exception as exc:  # noqa: BLE001 - the panel may be down
+            proxies = []
+            proxy_error = str(exc)
         return {
             "lang": lang,
             "csrf": csrf_for(token),
             "channels": channels,
             "rules": forwarding.get("rules", []),
             "hop": forwarding.get("hop", {}),
+            "proxy_ports": proxies,
+            "proxy_host": public_host,
+            "proxy_error": proxy_error,
             "states": {key: ops.container_state(key) for key in ("gateway", "panel", "singbox")},
             "state": ops.read_state(),
             "flash": ui.flash_html(params.get("flash", [""])[0], params.get("level", ["ok"])[0]),
@@ -280,6 +300,8 @@ class Handler(BaseHTTPRequestHandler):
             "/forwarding/delete": self._forwarding_delete,
             "/forwarding/hop": self._forwarding_hop,
             "/forwarding/apply": self._forwarding_apply,
+            "/proxy/add": self._proxy_add,
+            "/proxy/delete": self._proxy_delete,
             "/panel/route": self._panel_route,
             "/service/action": self._service_action,
         }
@@ -437,6 +459,30 @@ class Handler(BaseHTTPRequestHandler):
             return "/forwarding", self._tr("flash.fwd_failed", error=detail), "err"
         message = self._tr("flash.fwd_applied")
         ops.remember("apply", message)
+        return "/forwarding", message, "ok"
+
+    def _proxy_add(self, form: dict[str, str]) -> tuple[str, str, str]:
+        raw_port = (form.get("port") or "").strip()
+        if not raw_port.isdigit():
+            return "/forwarding", self._tr("err.proxy_busy", ports=raw_port or "?"), "err"
+        result = ops.add_proxy_port(
+            int(raw_port),
+            form.get("remark", ""),
+            form.get("kind", "reality"),
+            self._public_host(),
+        )
+        message = self._tr("flash.proxy_created", port=result["port"], link=result["link"])
+        ops.remember("proxy", message)
+        return "/forwarding", message, "ok"
+
+    def _proxy_delete(self, form: dict[str, str]) -> tuple[str, str, str]:
+        try:
+            inbound_id = int(form.get("id", "-1"))
+        except ValueError:
+            inbound_id = -1
+        ops.delete_proxy_port(inbound_id)
+        message = self._tr("flash.proxy_deleted")
+        ops.remember("proxy", message)
         return "/forwarding", message, "ok"
 
     def _panel_route(self, form: dict[str, str]) -> tuple[str, str, str]:

@@ -1,9 +1,11 @@
-"""Route the panel's own Xray traffic through the gateway.
+"""Route the panel's own Xray traffic through the gateway, and drive the panel API.
 
-Two panel generations are supported:
+Two panel generations are supported for the template patch:
 
 * **3.x** (``3x-ui 3.x``): HTTP API, ``POST /panel/api/xray/update`` with a CSRF token.
 * **2.x** (classic x-ui): the ``xrayTemplateConfig`` row inside the SQLite database.
+
+``PanelClient`` is the small 3.x client the console uses to create proxy inbounds.
 """
 
 from __future__ import annotations
@@ -15,13 +17,14 @@ import sqlite3
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from pathlib import Path
 
 TEMPLATE_KEY = "xrayTemplateConfig"
 
 
 class PanelError(RuntimeError):
-    """Raised when the panel refuses the template."""
+    """Raised when the panel refuses a request."""
 
 
 def backup(db_path: Path) -> Path:
@@ -78,7 +81,7 @@ def patch_database(db_path: Path, outbound: dict, rule: dict) -> dict:
     }
 
 
-# -- panel 3.x -------------------------------------------------------------
+# -- HTTP plumbing ---------------------------------------------------------
 def _open(url: str, data: bytes | None = None, headers: dict | None = None,
           opener: urllib.request.OpenerDirector | None = None, method: str | None = None) -> bytes:
     request = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
@@ -99,31 +102,10 @@ def _json(raw: bytes) -> dict:
         raise PanelError(f"panel returned non-JSON: {raw[:120]!r}") from exc
 
 
+# -- panel 3.x template ----------------------------------------------------
 def patch_api(base_url: str, username: str, password: str, outbound: dict, rule: dict) -> dict:
-    base = base_url.rstrip("/")
-    cookies = http.cookiejar.CookieJar()
-    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookies))
-
-    _open(f"{base}/", opener=opener)
-    token = str(_json(_open(f"{base}/csrf-token", opener=opener)).get("obj") or "")
-
-    form = urllib.parse.urlencode({"username": username, "password": password}).encode()
-    login = _json(
-        _open(
-            f"{base}/login",
-            data=form,
-            headers={"Content-Type": "application/x-www-form-urlencoded", "X-CSRF-Token": token},
-            opener=opener,
-            method="POST",
-        )
-    )
-    if not login.get("success"):
-        raise PanelError(f"panel login failed: {login.get('msg') or 'check PANEL_USERNAME/PANEL_PASSWORD'}")
-
-    token = str(_json(_open(f"{base}/csrf-token", opener=opener)).get("obj") or "")
-    headers = {"Content-Type": "application/json", "X-CSRF-Token": token}
-
-    template = _json(_open(f"{base}/panel/api/xray/", data=b"{}", headers=headers, opener=opener, method="POST"))
+    client = PanelClient(base_url, username, password).login()
+    template = client.post_json("/panel/api/xray/", {})
     payload = json.loads(str(template.get("obj") or "{}"))
     raw_setting = payload.get("xraySetting")
     if isinstance(raw_setting, dict):
@@ -139,23 +121,12 @@ def patch_api(base_url: str, username: str, password: str, outbound: dict, rule:
     form = urllib.parse.urlencode(
         {"xraySetting": json.dumps(config, ensure_ascii=False), "outboundTestUrl": test_url}
     ).encode()
-    response = _json(
-        _open(
-            f"{base}/panel/api/xray/update",
-            data=form,
-            headers={
-                "Content-Type": "application/x-www-form-urlencoded",
-                "X-CSRF-Token": token,
-            },
-            opener=opener,
-            method="POST",
-        )
-    )
+    response = client.post_form("/panel/api/xray/update", form)
     if not response.get("success"):
         raise PanelError(f"panel rejected the template: {response.get('msg')}")
 
     try:
-        _open(f"{base}/panel/api/server/restartXrayService", data=b"{}", headers=headers, opener=opener, method="POST")
+        client.post_json("/panel/api/server/restartXrayService", {})
     except PanelError:
         pass
 
@@ -164,3 +135,96 @@ def patch_api(base_url: str, username: str, password: str, outbound: dict, rule:
         "outbounds": [item.get("tag") for item in config["outbounds"]],
         "rules": len(config["routing"]["rules"]),
     }
+
+
+class PanelClient:
+    """Minimal 3.x client: login, CSRF, inbounds and key helpers."""
+
+    def __init__(self, base_url: str, username: str, password: str) -> None:
+        self.base = base_url.rstrip("/")
+        self.username = username
+        self.password = password
+        self._opener = urllib.request.build_opener(
+            urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar())
+        )
+        self._token = ""
+
+    # -- low level --------------------------------------------------------
+    def _headers(self) -> dict[str, str]:
+        return {"X-CSRF-Token": self._token} if self._token else {}
+
+    def get(self, path: str) -> dict:
+        return _json(_open(f"{self.base}{path}", headers=self._headers(), opener=self._opener))
+
+    def post_form(self, path: str, body: bytes) -> dict:
+        headers = {"Content-Type": "application/x-www-form-urlencoded", **self._headers()}
+        return _json(
+            _open(f"{self.base}{path}", data=body, headers=headers, opener=self._opener, method="POST")
+        )
+
+    def post_json(self, path: str, payload: dict | None = None) -> dict:
+        headers = {"Content-Type": "application/json", **self._headers()}
+        body = json.dumps(payload or {}).encode()
+        return _json(
+            _open(f"{self.base}{path}", data=body, headers=headers, opener=self._opener, method="POST")
+        )
+
+    def refresh_token(self) -> None:
+        self._token = str(self.get("/csrf-token").get("obj") or "")
+
+    # -- session ----------------------------------------------------------
+    def login(self) -> "PanelClient":
+        _open(f"{self.base}/", opener=self._opener)
+        self.refresh_token()
+        form = urllib.parse.urlencode({"username": self.username, "password": self.password}).encode()
+        response = _json(
+            _open(
+                f"{self.base}/login",
+                data=form,
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "X-CSRF-Token": self._token,
+                },
+                opener=self._opener,
+                method="POST",
+            )
+        )
+        if not response.get("success"):
+            raise PanelError(
+                f"panel login failed: {response.get('msg') or 'check PANEL_USERNAME/PANEL_PASSWORD'}"
+            )
+        self.refresh_token()
+        return self
+
+    # -- inbounds ---------------------------------------------------------
+    def list_inbounds(self) -> list[dict]:
+        payload = self.get("/panel/api/inbounds/list")
+        return payload.get("obj") or []
+
+    def add_inbound(self, payload: dict) -> dict:
+        response = self.post_json("/panel/api/inbounds/add", payload)
+        if not response.get("success"):
+            raise PanelError(response.get("msg") or "panel rejected the inbound")
+        return response.get("obj") or {}
+
+    def delete_inbound(self, inbound_id: int) -> dict:
+        response = self.post_json(f"/panel/api/inbounds/del/{inbound_id}", {})
+        if not response.get("success"):
+            raise PanelError(response.get("msg") or "panel could not delete the inbound")
+        return response
+
+    # -- helpers ----------------------------------------------------------
+    def new_uuid(self) -> str:
+        try:
+            return str(self.get("/panel/api/server/getNewUUID")["obj"]["uuid"])
+        except (KeyError, TypeError):
+            return str(uuid.uuid4())
+
+    def new_reality_keys(self) -> tuple[str, str]:
+        payload = self.get("/panel/api/server/getNewX25519Cert")
+        obj = payload.get("obj") or {}
+        private = obj.get("privateKey")
+        public = obj.get("publicKey")
+        if not private or not public:
+            raise PanelError("panel did not return a REALITY keypair")
+        return private, public

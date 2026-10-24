@@ -295,6 +295,47 @@ def forwarding(ctx: dict) -> str:
         f'<button class="btn" type="submit">{esc(t(lang, "common.save"))}</button></form></div>'
     )
 
+    proxy_rows = []
+    for item in ctx.get("proxy_ports", []):
+        proxy_rows.append(
+            "<tr>"
+            f'<td><b>{esc(item["remark"])}</b></td>'
+            f'<td class="mono tiny">{esc(item["port"])}</td>'
+            f'<td class="tiny">{esc(item["security"])}</td>'
+            f'<td><input class="mono tiny" readonly value="{esc(item["link"])}" onclick="this.select()"></td>'
+            '<td><form method="post" action="/proxy/delete" style="margin:0" '
+            f"onsubmit=\"return confirm('{esc(t(lang, 'proxy.delete_confirm'))}')\">"
+            f'{csrf_input(ctx["csrf"])}<input type="hidden" name="id" value="{esc(item["id"])}">'
+            f'<button class="btn danger sm" type="submit">{esc(t(lang, "common.delete"))}</button></form></td></tr>'
+        )
+    proxy_table = (
+        f"<table><thead><tr><th>{esc(t(lang, 'common.name'))}</th><th>{esc(t(lang, 'proxy.port'))}</th>"
+        f"<th>{esc(t(lang, 'proxy.kind'))}</th><th>{esc(t(lang, 'proxy.link'))}</th><th></th></tr></thead>"
+        f'<tbody>{"".join(proxy_rows)}</tbody></table>'
+        if proxy_rows
+        else f'<p class="muted">{esc(t(lang, "proxy.empty"))}</p>'
+    )
+    proxy_card = (
+        f'<div class="card"><h2>{esc(t(lang, "proxy.title"))}</h2>'
+        f'<p>{esc(t(lang, "proxy.hint"))}</p>'
+        + (f'<div class="flash err">{esc(ctx["proxy_error"])}</div>' if ctx.get("proxy_error") else "")
+        + '<form method="post" action="/proxy/add">'
+        + csrf_input(ctx["csrf"])
+        + '<div class="row" style="margin-bottom:10px">'
+        + f'<div class="field"><label>{esc(t(lang, "proxy.port"))}</label>'
+        + '<input name="port" placeholder="2087" class="mono" required></div>'
+        + f'<div class="field"><label>{esc(t(lang, "proxy.remark"))}</label>'
+        + '<input name="remark" placeholder="proxy-1"></div>'
+        + f'<div class="field"><label>{esc(t(lang, "proxy.kind"))}</label><select name="kind">'
+        + f'<option value="reality">{esc(t(lang, "proxy.kind_reality"))}</option>'
+        + f'<option value="ws">{esc(t(lang, "proxy.kind_ws"))}</option></select></div></div>'
+        + f'<button class="btn" type="submit">{esc(t(lang, "proxy.add"))}</button></form>'
+        + '<div class="hr"></div>'
+        + f'<h2>{esc(t(lang, "proxy.table"))}</h2>'
+        + proxy_table
+        + "</div>"
+    )
+
     add_card = (
         f'<div class="card"><h2>{esc(t(lang, "fw.add_title"))}</h2>'
         f'<p>{esc(t(lang, "fw.hint"))}</p>'
@@ -343,7 +384,7 @@ def forwarding(ctx: dict) -> str:
     body = (
         f"<h1>{esc(t(lang, 'fw.title'))}</h1>"
         f'<p class="sub">{esc(t(lang, "fw.subtitle"))}</p>'
-        f'{add_card}<div style="height:14px"></div>{hop_card}{table}'
+        f'{proxy_card}<div style="height:14px"></div>{add_card}<div style="height:14px"></div>{hop_card}{table}'
     )
     return layout(t(lang, "fw.title"), body, "/forwarding", ctx["flash"], lang)
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import secrets
 import shutil
 import socket
 import subprocess
@@ -16,7 +17,7 @@ ROOT = Path(os.environ.get("OUTLANDER_ROOT", "/repo")).resolve()
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from outlander import forward, panel, render  # noqa: E402
+from outlander import forward, inbounds, panel, render  # noqa: E402
 from outlander.uri import LinkError, parse  # noqa: E402
 
 DOCKER_SOCK = os.environ.get("DOCKER_SOCK", "/var/run/docker.sock")
@@ -282,6 +283,91 @@ def apply_forwarding() -> tuple[bool, str]:
     if check.returncode != 0:
         return False, check.stderr.strip()
     return True, "firewall rules applied"
+
+
+def _reserved_ports() -> set[int]:
+    env = render.read_env(ROOT)
+    reserved: set[int] = set()
+    for key in ("PANEL_PORT", "CONSOLE_PORT", "GATEWAY_SOCKS_PORT", "GATEWAY_HTTP_PORT", "HY2_PORT", "TUIC_PORT"):
+        value = str(env.get(key) or "").strip()
+        if value.isdigit():
+            reserved.add(int(value))
+    return reserved
+
+
+def panel_client() -> panel.PanelClient:
+    env = render.read_env(ROOT)
+    base = f"http://127.0.0.1:{env.get('PANEL_PORT', '2053')}"
+    client = panel.PanelClient(base, env.get("PANEL_USERNAME", "admin"), env.get("PANEL_PASSWORD", ""))
+    try:
+        return client.login()
+    except panel.PanelError as exc:
+        raise OpError("err.proxy_panel", detail=str(exc)) from exc
+
+
+def proxy_ports(public_host: str) -> list[dict]:
+    rows: list[dict] = []
+    for inbound in panel_client().list_inbounds():
+        link = inbounds.link_for(inbound, public_host)
+        if not link:
+            continue
+        stream = inbound.get("streamSettings") or {}
+        rows.append(
+            {
+                "id": inbound.get("id"),
+                "remark": inbound.get("remark") or "",
+                "port": inbound.get("port"),
+                "security": (stream.get("security") or "none"),
+                "link": link,
+            }
+        )
+    return rows
+
+
+def add_proxy_port(port: int, remark: str, kind: str, public_host: str) -> dict:
+    if not 0 < port < 65536:
+        raise OpError("err.proxy_busy", ports=str(port))
+    if port in _reserved_ports() or forward.conflicting_ports({"listen": str(port), "listen_ip": ""}):
+        raise OpError("err.proxy_busy", ports=str(port))
+    for rule in forward.load(ROOT).get("rules", []):
+        listen = str(rule.get("listen") or "")
+        if listen == str(port):
+            raise OpError("err.proxy_forwarded", port=str(port))
+        if "-" in listen:
+            low, _, high = listen.partition("-")
+            if low.isdigit() and high.isdigit() and int(low) <= port <= int(high):
+                raise OpError("err.proxy_forwarded", port=str(port))
+
+    client = panel_client()
+    try:
+        existing = {int(item.get("port") or 0) for item in client.list_inbounds()}
+        if port in existing:
+            raise OpError("err.proxy_exists", port=str(port))
+        uuid_value = client.new_uuid()
+        name = remark.strip() or f"proxy-{port}"
+        if kind == "reality":
+            private, public = client.new_reality_keys()
+            short_id = secrets.token_hex(8)
+            payload = inbounds.reality_inbound(port, name, uuid_value, private, public, short_id)
+            link = inbounds.reality_link(public_host, port, uuid_value, public, short_id, remark=name)
+        else:
+            payload = inbounds.ws_inbound(port, name, uuid_value)
+            link = inbounds.ws_link(public_host, port, uuid_value, remark=name)
+        client.add_inbound(payload)
+    except panel.PanelError as exc:
+        raise OpError("err.proxy_create", detail=str(exc)) from exc
+    return {"link": link, "remark": name, "port": port}
+
+
+def delete_proxy_port(inbound_id: int) -> None:
+    client = panel_client()
+    target = next((item for item in client.list_inbounds() if item.get("id") == inbound_id), None)
+    if not target or not inbounds.link_for(target, "0.0.0.0"):
+        raise OpError("err.proxy_not_found")
+    try:
+        client.delete_inbound(inbound_id)
+    except panel.PanelError as exc:
+        raise OpError("err.proxy_create", detail=str(exc)) from exc
 
 
 def patch_panel_route() -> tuple[bool, str]:
