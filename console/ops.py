@@ -299,10 +299,14 @@ def panel_client() -> panel.PanelClient:
     env = render.read_env(ROOT)
     base = f"http://127.0.0.1:{env.get('PANEL_PORT', '2053')}"
     client = panel.PanelClient(base, env.get("PANEL_USERNAME", "admin"), env.get("PANEL_PASSWORD", ""))
-    try:
-        return client.login()
-    except panel.PanelError as exc:
-        raise OpError("err.proxy_panel", detail=str(exc)) from exc
+    error: Exception | None = None
+    for _ in range(3):
+        try:
+            return client.login()
+        except panel.PanelError as exc:
+            error = exc
+            time.sleep(1.5)
+    raise OpError("err.proxy_panel", detail=str(error))
 
 
 def proxy_ports(public_host: str) -> list[dict]:

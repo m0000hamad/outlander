@@ -26,6 +26,24 @@ Paste any mix of `vless://`, `vmess://`, `trojan://`, `ss://`, `socks://`, `http
 - `IP جایگزین DNS` writes a `dns.hosts` entry - use it when the CDN hostname is poisoned.
 - `از طریق` chains the new outbound behind an existing one (`proxySettings.tag` in Xray).
 
+## Proxy ports
+
+A port forward is a raw relay: it copies bytes to a target and can never act as a proxy endpoint. The
+**proxy port** card on the forwarding page creates a real VLESS inbound in the panel instead:
+
+| field | meaning |
+|---|---|
+| port | any free TCP port (warns if a service, forward or inbound already uses it) |
+| name | remark, also used as the client email |
+| protocol | `VLESS + REALITY` (no certificate, best against probing) or `VLESS + WS` (plain, for a CDN) |
+
+The card signs in to the panel API, asks it for a UUID and a REALITY keypair, creates the inbound and
+shows the ready-to-use client link. Traffic leaves through the gateway chain, because the panel
+template routes everything to `ol-gateway`.
+
+Below the form every VLESS inbound of the panel is listed with its link (click to select) and a delete
+button - that includes the inbounds created by hand in the 3x-ui UI.
+
 ## Adding forwards
 
 | fields | result |
