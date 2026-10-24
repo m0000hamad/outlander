@@ -140,6 +140,9 @@ python3 -m outlander forward render && sudo bash scripts/forward-apply.sh
 ```
 
 - قوانین در `config/nftables/outlander.nft` رندر می‌شوند و با یونیت `outlander-forward.service` بعد از ریبوت هم برمی‌گردند.
+- مقصد می‌تواند IP یا دامنه باشد؛ دامنه هنگام رندر به یک IPv4 تبدیل می‌شود (nftables اسم چندآدرسی را قبول نمی‌کند). اگر DNS عوض شد `forward render` را دوباره بزنید.
+- اسکریپت اعمال، قاعدهٔ `DOCKER-USER -m conntrack --ctstate DNAT -j ACCEPT` را اضافه می‌کند؛ بدون آن، فوروارد به مقصدهای خارجی توسط سیاست `FORWARD DROP` داکر بی‌صدا دور ریخته می‌شود.
+- فوروارد یک relay خام است، نه پروکسی: کلاینت باید `Host/SNI` اصلی را نگه دارد و فقط IP را عوض کند. گذاشتن `<server-ip>:2083` در کانفیگ کلاینت پروکسی کار نمی‌کند؛ برای آن باید inbound در پنل بسازید.
 - پورت‌هاپینگ Hysteria2: کلاینت `mport=20000-40000` می‌زند و همه به `172.28.60.12:8443` می‌رسند.
 - روتر SNI (چند دامنه روی یک IP): `COMPOSE_PROFILES=extra,ha` و `config/haproxy/haproxy.cfg`.
 

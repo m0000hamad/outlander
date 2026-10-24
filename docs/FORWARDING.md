@@ -63,6 +63,39 @@ Removing a rule:
 python3 -m outlander forward render && sudo bash scripts/forward-apply.sh
 ```
 
+## Forwarding to a public host
+
+The target may be an IP or a hostname (`s3.example.com:2083`). At render time the hostname is
+resolved to a single IPv4 address, because nftables cannot write a rule for a name that returns
+several addresses. If the DNS record changes, re-render: `outlander forward render && make
+forward-apply`.
+
+Docker sets the `FORWARD` policy to `DROP`, so a DNAT'd packet heading for an *external* host is
+silently dropped unless something accepts it. The generated `config/nftables/docker-allow.sh`
+therefore always starts with:
+
+```bash
+iptables -C DOCKER-USER -m conntrack --ctstate DNAT -j ACCEPT || \
+  iptables -I DOCKER-USER 1 -m conntrack --ctstate DNAT -j ACCEPT
+```
+
+`forward-apply.sh`, the console and `outlander-forward.service` all run that script, so forwards to
+public hosts work after a reboot too. If you apply the nft rules by hand, run the script as well.
+
+### A forward is a raw relay, not a proxy
+
+`2083 -> s3.example.com:2083` copies TCP/UDP bytes. It does not terminate TLS and it is not a proxy
+endpoint:
+
+* the client must keep the original **Host/SNI** (`s3.example.com`) and only change the IP (a hosts
+  entry or an endpoint override). If it connects to `https://<server-ip>:2083` with SNI = the server
+  IP, the target's certificate/CDN rejects it;
+* putting `<server-ip>:2083` into a proxy client config (v2rayNG, Hiddify, ...) will never work -
+  that needs a panel inbound, not a forward;
+* verify from outside with
+  `curl -k --resolve host:port:<server-ip> https://host:port/` or
+  `openssl s_client -connect <server-ip>:<port> -servername host`.
+
 ## SNI routing with HAProxy
 
 One public port, several backends, chosen by the TLS `ClientHello` SNI *before* any handshake is
