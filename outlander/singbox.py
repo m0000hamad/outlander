@@ -1,12 +1,30 @@
-"""sing-box pieces: Hysteria2/TUIC outbounds plus the matching local SOCKS inbounds.
+"""sing-box pieces.
 
-Xray cannot speak Hysteria2 or TUIC, so those channels live in sing-box and are
-handed to the gateway through a loopback SOCKS5 inbound with auth.
+Two jobs:
+
+* speak the protocols Xray cannot (Hysteria2/TUIC)
+* speak the protocols new Xray versions refuse without TLS (plain VLESS/Trojan,
+  which is exactly what a CDN-fronted ``ws`` link looks like)
+
+Either way the outbound is exposed to the gateway through a loopback SOCKS5
+inbound with a password derived from the inventory secret.
 """
 
 from __future__ import annotations
 
 from .uri import Link, LinkError, truthy
+
+BRIDGE_SCHEMES = {"hysteria2", "tuic"}
+
+
+def needs_bridge(link: Link) -> bool:
+    """True when the outbound must live in sing-box instead of Xray."""
+    if link.scheme in BRIDGE_SCHEMES:
+        return True
+    if link.scheme in {"vless", "trojan"} and link.security not in {"tls", "reality"}:
+        # Xray >= 26.10 refuses "vless/trojan without TLS" towards public addresses.
+        return True
+    return False
 
 
 def _tls(link: Link, alpn: str = "h3") -> dict:
@@ -18,6 +36,36 @@ def _tls(link: Link, alpn: str = "h3") -> dict:
     if truthy(link.params.get("insecure") or link.params.get("allowinsecure") or "0"):
         tls["insecure"] = True
     return tls
+
+
+def _transport(link: Link) -> dict | None:
+    network = link.network
+    if network == "ws":
+        transport: dict = {"type": "ws", "path": link.path}
+        if link.host:
+            transport["headers"] = {"Host": link.host}
+        return transport
+    if network == "grpc":
+        return {"type": "grpc", "service_name": link.params.get("servicename") or link.path.strip("/")}
+    if network == "httpupgrade":
+        upgrade: dict = {"type": "httpupgrade", "path": link.path}
+        if link.host:
+            upgrade["host"] = link.host
+        return upgrade
+    if network == "http":
+        plain: dict = {"type": "http", "path": link.path}
+        if link.host:
+            plain["host"] = [link.host]
+        return plain
+    if network == "tcp":
+        if (link.params.get("headertype") or "none") == "http":
+            raise LinkError(
+                "tcp+http-header without TLS cannot be bridged; use a ws link or enable TLS"
+            )
+        return None
+    raise LinkError(
+        f"'{network}' without TLS cannot be bridged through sing-box; use a ws link or enable TLS"
+    )
 
 
 def singbox_outbound(link: Link, tag: str) -> dict:
@@ -55,6 +103,48 @@ def singbox_outbound(link: Link, tag: str) -> dict:
             "udp_relay_mode": link.params.get("udp_relay_mode") or "native",
             "tls": _tls(link),
         }
+
+    if link.scheme == "vless":
+        outbound = {
+            "type": "vless",
+            "tag": tag,
+            "server": link.address,
+            "server_port": link.port,
+            "uuid": link.uuid,
+            "packet_encoding": "xudp",
+        }
+        transport = _transport(link)
+        if transport:
+            outbound["transport"] = transport
+        return outbound
+
+    if link.scheme == "trojan":
+        outbound = {
+            "type": "trojan",
+            "tag": tag,
+            "server": link.address,
+            "server_port": link.port,
+            "password": link.password,
+        }
+        transport = _transport(link)
+        if transport:
+            outbound["transport"] = transport
+        return outbound
+
+    if link.scheme == "vmess":
+        outbound = {
+            "type": "vmess",
+            "tag": tag,
+            "server": link.address,
+            "server_port": link.port,
+            "uuid": link.uuid,
+            "alter_id": int(link.params.get("aid") or 0),
+            "security": link.params.get("scy") or "auto",
+        }
+        transport = _transport(link)
+        if transport:
+            outbound["transport"] = transport
+        return outbound
 
     raise LinkError(f"{link.scheme}: sing-box cannot dial this protocol")
 

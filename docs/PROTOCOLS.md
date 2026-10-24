@@ -59,6 +59,14 @@ tuic://<uuid>:<password>@<ip>:8444?sni=hy2.example.com&congestion_control=bbr&al
 
 ## What the gateway does to an upstream link
 
+Two protocols are special-cased. `vless` and `trojan` links **without TLS** (the usual
+`ws://…:80` CDN hop) are refused by Xray `>= 26.10` for public addresses
+(`vless without TLS or other encryption is prohibited unless the server address is a private IP or
+domain`). Outlander detects that and renders those outbounds in sing-box, bridged back to the
+gateway over authenticated SOCKS5. Hysteria2 and TUIC are handled the same way. Everything else
+stays native Xray. The CLI rejects a link at `add` time when the transport cannot be bridged
+(e.g. `xhttp` without TLS).
+
 `outlander add` parses the link and produces a full Xray/sing-box outbound:
 
 | link part | rendered as |

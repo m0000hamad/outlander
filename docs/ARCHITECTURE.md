@@ -42,11 +42,21 @@
 The panel only needs a single stable outbound (`127.0.0.1:10808`), so a panel upgrade cannot
 break the upstream chain. Re-run `make panel` after any panel-side Xray edit.
 
-## Why sing-box for Hysteria2/TUIC
+## Why some channels live in sing-box
 
-Xray has no QUIC-based Hysteria2/TUIC client/server. sing-box implements both. The gateway
-reaches each sing-box outbound through a loopback SOCKS5 inbound that requires a password
-derived from the inventory secret, so nothing is exposed unauthenticated.
+Two cases:
+
+1. **Hysteria2 / TUIC** - Xray has no QUIC client for either, sing-box implements both.
+2. **VLESS or Trojan without TLS** - Xray `>= 26.10` refuses those towards any public address
+   (`vless without TLS or other encryption is prohibited unless the server address is a private IP
+   or domain`). A CDN-fronted `ws://host:80` link is exactly that shape, so the renderer puts those
+   outbounds in sing-box instead of Xray. Nothing changes in the inventory: `needs_bridge()` decides
+   and the gateway sees one more `socks` outbound.
+
+The gateway reaches each sing-box outbound through a loopback SOCKS5 inbound that requires a
+password derived from the inventory secret, so nothing is exposed unauthenticated. sing-box routes
+each bridge inbound to its matching outbound (`route.rules[inbound -> outbound]`) and sends
+Hysteria2/TUIC client traffic back to `gw`, the gateway.
 
 ## Config generation
 

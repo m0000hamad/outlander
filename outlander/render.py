@@ -7,7 +7,13 @@ import re
 import secrets
 from pathlib import Path
 
-from .singbox import hysteria2_inbound, singbox_outbound, socks_inbound, tuic_inbound
+from .singbox import (
+    hysteria2_inbound,
+    needs_bridge,
+    singbox_outbound,
+    socks_inbound,
+    tuic_inbound,
+)
 from .uri import Link, LinkError, parse, truthy
 from .xray import block_outbound, direct_outbound, xray_outbound
 
@@ -97,6 +103,8 @@ def add_channel(
     via: str = "",
 ) -> dict:
     link = parse(link_raw)
+    if needs_bridge(link):
+        singbox_outbound(link, "validate")
     name = tag or (link.name or link.address)
     if find(inventory, name):
         raise LinkError(f"channel '{name}' already exists")
@@ -132,7 +140,7 @@ def gateway_config(inventory: dict, env: dict | None = None) -> dict:
         link = parse(channel["link"])
         tag = outbound_tag(channel)
         via = tags.get(channel.get("via") or "")
-        if link.is_singbox:
+        if needs_bridge(link):
             port = SINGBOX_SOCKS_BASE + socks_index
             socks_index += 1
             outbounds.append(
@@ -260,15 +268,18 @@ def singbox_config(inventory: dict, env: dict | None = None) -> dict:
 
     inbounds: list[dict] = []
     outbounds: list[dict] = []
+    rules: list[dict] = []
     socks_index = 0
     for channel in channels:
         link = parse(channel["link"])
-        if not link.is_singbox:
+        if not needs_bridge(link):
             continue
+        tag = outbound_tag(channel)
         port = SINGBOX_SOCKS_BASE + socks_index
         socks_index += 1
-        outbounds.append(singbox_outbound(link, outbound_tag(channel)))
-        inbounds.append(socks_inbound(f"{outbound_tag(channel)}-in", port, SOCKS_USER, secret[:24]))
+        outbounds.append(singbox_outbound(link, tag))
+        inbounds.append(socks_inbound(f"{tag}-in", port, SOCKS_USER, secret[:24]))
+        rules.append({"inbound": [f"{tag}-in"], "outbound": tag})
 
     if truthy(env.get("HY2_ENABLED", "0")):
         inbounds.append(hysteria2_inbound(env))
@@ -290,12 +301,7 @@ def singbox_config(inventory: dict, env: dict | None = None) -> dict:
         "log": {"level": "warn", "timestamp": True},
         "inbounds": inbounds,
         "outbounds": outbounds,
-        "route": {
-            "rules": [
-                {"ip_is_private": True, "outbound": "direct"},
-            ],
-            "final": "gw",
-        },
+        "route": {"rules": rules, "final": "gw"},
     }
 
 
@@ -311,8 +317,8 @@ def render(root: Path, env: dict | None = None) -> dict[str, Path]:
 
     singbox_path = root / SINGBOX_CONFIG
     singbox_path.parent.mkdir(parents=True, exist_ok=True)
-    singbox = singbox_config(inventory, env)
-    singbox_path.write_text(json.dumps(singbox, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    singbox_payload = singbox_config(inventory, env)
+    singbox_path.write_text(json.dumps(singbox_payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     return {"inventory": root / INVENTORY, "gateway": gateway_path, "singbox": singbox_path}
 

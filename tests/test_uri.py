@@ -138,13 +138,66 @@ class RenderTests(unittest.TestCase):
         config = render.gateway_config(self.inventory(), {})
         hy2 = next(item for item in config["outbounds"] if item["tag"] == "ol-hy2-hy2a")
         self.assertEqual(hy2["protocol"], "socks")
-        self.assertEqual(hy2["settings"]["servers"][0]["port"], render.SINGBOX_SOCKS_BASE)
+        self.assertEqual(hy2["settings"]["servers"][0]["port"], render.SINGBOX_SOCKS_BASE + 1)
+
+    def test_plain_vless_channel_is_bridged(self):
+        config = render.gateway_config(self.inventory(), {})
+        cdn = next(item for item in config["outbounds"] if item["tag"] == "ol-cdn-cdn2")
+        self.assertEqual(cdn["protocol"], "socks")
+        singbox = render.singbox_config(self.inventory(), {})
+        outbound = next(item for item in singbox["outbounds"] if item["tag"] == "ol-cdn-cdn2")
+        self.assertEqual(outbound["type"], "vless")
+        self.assertEqual(outbound["transport"]["type"], "ws")
+        self.assertEqual(outbound["transport"]["headers"]["Host"], "link.example-cdn.ir")
+        self.assertEqual(outbound["transport"]["path"], "/link/demoToken")
+        self.assertIn(
+            {"inbound": ["ol-cdn-cdn2-in"], "outbound": "ol-cdn-cdn2"},
+            singbox["route"]["rules"],
+        )
+
+    def test_reality_channel_stays_in_xray(self):
+        inventory = self.inventory()
+        inventory["channels"].append(
+            {
+                "tag": "r1",
+                "group": "direct",
+                "enabled": True,
+                "link": (
+                    "vless://11111111-2222-3333-4444-555555555555@1.2.3.4:443"
+                    "?encryption=none&security=reality&sni=www.microsoft.com&fp=chrome"
+                    "&pbk=PUBKEY&sid=abcd&type=tcp&flow=xtls-rprx-vision#r1"
+                ),
+            }
+        )
+        config = render.gateway_config(inventory, {})
+        reality = next(item for item in config["outbounds"] if item["tag"] == "ol-direct-r1")
+        self.assertEqual(reality["protocol"], "vless")
+        singbox = render.singbox_config(inventory, {})
+        self.assertNotIn("ol-direct-r1", [item["tag"] for item in singbox["outbounds"]])
+
+    def test_trojan_without_tls_is_bridged(self):
+        inventory = self.inventory()
+        inventory["channels"] = [
+            {"tag": "t1", "group": "cdn", "enabled": True, "link": "trojan://pw@example.com:80?type=ws&path=%2Ft#t"}
+        ]
+        config = render.gateway_config(inventory, {})
+        self.assertEqual(config["outbounds"][0]["protocol"], "socks")
+        singbox = render.singbox_config(inventory, {})
+        self.assertEqual(singbox["outbounds"][0]["type"], "trojan")
+
+    def test_unbridgeable_transport_is_rejected_early(self):
+        inventory = self.inventory()
+        with self.assertRaises(Exception):
+            render.add_channel(
+                inventory,
+                "vless://11111111-2222-3333-4444-555555555555@example.com:80?type=xhttp&security=none",
+                tag="x1",
+            )
 
     def test_singbox_mirrors_socks_inbound(self):
         config = render.singbox_config(self.inventory(), {})
         socks = config["inbounds"][0]
         self.assertEqual(socks["listen_port"], render.SINGBOX_SOCKS_BASE)
-        self.assertEqual(config["outbounds"][0]["type"], "hysteria2")
         self.assertEqual(config["route"]["final"], "gw")
 
     def test_panel_fragments(self):
