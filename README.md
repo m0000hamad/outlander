@@ -2,7 +2,7 @@
 
 Chained, multi-protocol proxy infrastructure for a single Ubuntu box.
 
-- **Console**: a small web UI (:8099) to paste outbound links, add port/IP forwards and apply them instantly.
+- **Console**: a small bilingual (Persian/English) web UI (:8099) to paste outbound links, add port/IP forwards and apply them instantly.
 - **Panel**: 3x-ui (the Sanaei panel) on host networking, so REALITY and per-client stats see real client IPs.
 - **Gateway**: a separate Xray instance that owns *egress*. It turns any share link (`vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `tuic://`) into a health-checked upstream, balances across all of them with `leastPing`, and falls back to direct.
 - **Extra protocols**: Hysteria2 (salamander obfs + port hopping) and TUIC via sing-box, bridged into the gateway over authenticated SOCKS5.

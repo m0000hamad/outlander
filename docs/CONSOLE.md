@@ -41,6 +41,16 @@ applied with `nft -f`. Targets inside `172.28.60.0/24` automatically get a `DOCK
 The **Hysteria2 port hopping** card edits the `hop` block: a UDP range (default `20000-40000`)
 DNAT'd onto the sing-box listener.
 
+## Language
+
+The console ships with Persian (default) and English. The `FA / EN` switch in the header (and on the
+login card) stores the choice in an `ol_lang` cookie for a year and flips the page direction
+(`rtl`/`ltr`). Form validation and flash messages follow the selected language; the upstream parse
+errors from the CLI stay English because they quote the link itself.
+
+Strings live in `console/i18n.py` - add a key to both tables and use `t(lang, "key")` in
+`console/ui.py` (or `self._tr("key")` in the handlers) to extend it.
+
 ## State and files
 
 ```

@@ -49,7 +49,7 @@ sudo bash scripts/install.sh --outbound 'vless://<uuid>@abr02.example.ir:80?encr
 
 ## ۲) کنسول وب
 
-`http://<server-ip>:8099` — یوزرنیم `admin` و پسورد همان `CONSOLE_PASSWORD` در `.env` (نصب‌کننده می‌سازد).
+`http://<server-ip>:8099` — یوزرنیم `admin` و پسورد همان `CONSOLE_PASSWORD` در `.env` (نصب‌کننده می‌سازد). رابط کنسول دوزبانه است: کلید `FA / EN` در هدر (و صفحهٔ ورود) زبان را عوض می‌کند و جهت صفحه هم همراهش تغییر می‌کند.
 
 | بخش | کار |
 |---|---|

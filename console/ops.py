@@ -36,6 +36,15 @@ class DockerUnavailable(RuntimeError):
     pass
 
 
+class OpError(RuntimeError):
+    """A user facing error; ``code`` is an i18n key and ``params`` its placeholders."""
+
+    def __init__(self, code: str, **params: object) -> None:
+        super().__init__(code)
+        self.code = code
+        self.params = params
+
+
 class _UnixConnection(http.client.HTTPConnection):
     def __init__(self, path: str, timeout: float = 25):
         super().__init__("localhost", timeout=timeout)
@@ -211,21 +220,19 @@ def toggle_channel(tag: str) -> bool | None:
 
 def add_forward(proto: str, listen_ip: str, listen: str, target: str) -> str:
     data = forward.load(ROOT)
-    rule = forward.normalise_rule(
-        {"proto": proto, "listen_ip": listen_ip, "listen": listen, "target": target}
-    )
+    try:
+        rule = forward.normalise_rule(
+            {"proto": proto, "listen_ip": listen_ip, "listen": listen, "target": target}
+        )
+    except ValueError as exc:
+        raise OpError("err.invalid_rule", detail=str(exc)) from exc
     conflicts = forward.conflicting_ports(rule)
     if conflicts:
         busy = ", ".join(str(port) for port in conflicts)
-        raise ValueError(
-            f"پورت {busy} همین حالا روی سرور سرویس دارد؛ فوروارد کردنش آن سرویس را می‌خواباند. "
-            "پورت دیگری بدهید یا IP ورودی را مشخص کنید."
-        )
+        raise OpError("err.forward_busy", ports=busy)
     for existing in data["rules"]:
         if forward.same_listener(existing, rule):
-            raise ValueError(
-                f"قانونی برای پورت {rule['listen']} از قبل وجود دارد؛ اول همان را حذف کنید."
-            )
+            raise OpError("err.forward_duplicate", listen=rule["listen"])
     data["rules"].append(rule)
     forward.save(ROOT, data)
     return f"{rule['proto']}/{rule['listen']} -> {rule['target']}"
@@ -246,9 +253,12 @@ def save_hop(enabled: bool, proto: str, port_range: str, target: str) -> None:
     hop["enabled"] = enabled
     hop["proto"] = proto if proto in {"udp", "tcp"} else "udp"
     hop["range"] = port_range
-    hop["target"] = forward.normalise_target(target)
+    try:
+        hop["target"] = forward.normalise_target(target)
+    except ValueError as exc:
+        raise OpError("err.invalid_rule", detail=str(exc)) from exc
     if not forward.PORT_RE.match(hop["range"]):
-        raise ValueError("range must look like 20000-40000")
+        raise OpError("err.hop_range")
     data["hop"] = hop
     forward.save(ROOT, data)
 
@@ -289,9 +299,7 @@ def patch_panel_route() -> tuple[bool, str]:
             )
         except panel.PanelError as exc:
             return False, str(exc)
-        return True, "panel routed through the gateway via the 3.x API (" + ", ".join(
-            str(tag) for tag in summary["outbounds"]
-        ) + ")"
+        return True, ", ".join(str(tag) for tag in summary["outbounds"])
 
     if not db.exists():
         return False, "panel database not found - open the panel once first"
@@ -305,7 +313,7 @@ def patch_panel_route() -> tuple[bool, str]:
         summary = panel.patch_database(db, outbound, rule)
         if stopped:
             container_action("panel", "start")
-        return True, "panel routed through the gateway (" + ", ".join(summary["outbounds"]) + ")"
+        return True, ", ".join(summary["outbounds"])
     except Exception as exc:  # noqa: BLE001 - surfaced to the operator
         if stopped:
             try:

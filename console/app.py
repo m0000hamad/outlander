@@ -1,4 +1,4 @@
-"""Outlander web console: an authenticated UI over the outlander operations."""
+"""Outlander web console: an authenticated, bilingual UI over the outlander operations."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import ops, ui
+from . import i18n, ops, ui
 
 USER = os.environ.get("CONSOLE_USER", "admin")
 PORT = int(os.environ.get("CONSOLE_PORT", "8099"))
@@ -21,6 +21,7 @@ BIND = os.environ.get("CONSOLE_BIND", "0.0.0.0")
 SESSION_TTL = int(os.environ.get("CONSOLE_SESSION_TTL", str(12 * 3600)))
 MAX_BODY = 2 * 1024 * 1024
 PASSWORD_FILE = Path(os.environ.get("CONSOLE_PASSWORD_FILE", "/data/console-password.txt"))
+LANG_COOKIE = "ol_lang"
 
 _SECRET = secrets.token_bytes(32)
 _SESSIONS: dict[str, float] = {}
@@ -93,7 +94,7 @@ def _safe_equal(left: str, right: str) -> bool:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "OutlanderConsole/1.0"
+    server_version = "OutlanderConsole/1.1"
     protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt: str, *args: object) -> None:
@@ -134,6 +135,17 @@ class Handler(BaseHTTPRequestHandler):
         token = self._cookie("ol_console")
         return token if session_valid(token) else ""
 
+    def _lang(self) -> str:
+        return i18n.normalise(self._cookie(LANG_COOKIE))
+
+    def _back(self) -> str:
+        """Path of the referring page, for the language switch."""
+        parsed = urllib.parse.urlparse(self.headers.get("Referer") or "")
+        path = parsed.path or "/"
+        if not path.startswith("/") or path.startswith("//"):
+            return "/"
+        return path
+
     def _form(self) -> dict[str, str]:
         try:
             length = int(self.headers.get("Content-Length") or 0)
@@ -148,6 +160,7 @@ class Handler(BaseHTTPRequestHandler):
         return {key: values[0] for key, values in parsed.items()}
 
     def _context(self, token: str, params: dict[str, list[str]]) -> dict:
+        lang = self._lang()
         inventory = ops.inventory()
         channels = []
         for channel in inventory.get("channels", []):
@@ -164,6 +177,8 @@ class Handler(BaseHTTPRequestHandler):
                     detail_parts.append(f"path={link.path}")
                 if channel.get("via"):
                     detail_parts.append(f"via={channel['via']}")
+                if channel.get("resolve"):
+                    detail_parts.append(f"resolve={channel['resolve']}")
                 channels.append(
                     {
                         "tag": channel["tag"],
@@ -188,15 +203,14 @@ class Handler(BaseHTTPRequestHandler):
         forwarding = ops.forwarding()
         env = ops.env()
         return {
+            "lang": lang,
             "csrf": csrf_for(token),
             "channels": channels,
             "rules": forwarding.get("rules", []),
             "hop": forwarding.get("hop", {}),
             "states": {key: ops.container_state(key) for key in ("gateway", "panel", "singbox")},
             "state": ops.read_state(),
-            "flash": ui.flash_html(
-                params.get("flash", [""])[0], params.get("level", ["ok"])[0]
-            ),
+            "flash": ui.flash_html(params.get("flash", [""])[0], params.get("level", ["ok"])[0]),
             "socks_port": env.get("GATEWAY_SOCKS_PORT", "10808"),
         }
 
@@ -205,12 +219,20 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
         params = urllib.parse.parse_qs(parsed.query)
+
         if path == "/healthz":
             return self._send(200, "ok", "text/plain; charset=utf-8")
+
+        if path.startswith("/lang/"):
+            code = i18n.normalise(path.split("/")[-1])
+            cookie = f"{LANG_COOKIE}={code}; Path=/; Max-Age=31536000; SameSite=Lax"
+            return self._send(303, b"", headers={"Location": self._back(), "Set-Cookie": cookie})
+
         if path == "/login":
             if self._session():
                 return self._redirect("/")
-            return self._send(200, ui.login())
+            return self._send(200, ui.login(lang=self._lang()))
+
         token = self._session()
         if not token:
             return self._redirect("/login")
@@ -221,7 +243,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, ui.outbounds(context))
         if path == "/forwarding":
             return self._send(200, ui.forwarding(context))
-        return self._send(404, ui.layout("404", "<h1>404</h1><p>صفحه پیدا نشد.</p>", "/"))
+        return self._send(404, ui.layout("404", "<h1>404</h1>", "/", "", self._lang()))
 
     def do_POST(self) -> None:  # noqa: N802 - http.server API
         path = urllib.parse.urlparse(self.path).path.rstrip("/") or "/"
@@ -266,29 +288,35 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(404, "not found", "text/plain; charset=utf-8")
         try:
             target, message, level = handler(form)
+        except ops.OpError as exc:
+            target, message, level = "/", i18n.t(self._lang(), exc.code, **exc.params), "err"
         except Exception as exc:  # noqa: BLE001 - surfaced in the UI
             target, message, level = "/", f"{type(exc).__name__}: {exc}", "err"
         self._redirect(target, message, level)
 
     # -- auth -------------------------------------------------------------
     def _login(self, form: dict[str, str]) -> None:
+        lang = self._lang()
         ip = self.client_address[0]
         if not login_allowed(ip):
-            return self._send(429, ui.login("تلاش‌های ناموفق زیاد بود؛ چند دقیقه صبر کنید."))
+            return self._send(429, ui.login(i18n.t(lang, "login.rate"), lang))
         if form.get("user", "") == USER and _safe_equal(form.get("password", ""), password()):
             token = new_session()
             cookie = f"ol_console={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age={SESSION_TTL}"
             return self._send(303, b"", headers={"Location": "/", "Set-Cookie": cookie})
         note_failure(ip)
-        return self._send(401, ui.login("کاربر یا رمز اشتباه است."))
+        return self._send(401, ui.login(i18n.t(lang, "login.bad"), lang))
 
     # -- actions ----------------------------------------------------------
+    def _tr(self, key: str, **params: object) -> str:
+        return i18n.t(self._lang(), key, **params)
+
     def _restart_gateway(self) -> str:
         try:
             ops.container_action("gateway", "restart")
             return ""
         except Exception as exc:  # noqa: BLE001
-            return f" (ری‌استارت گیت‌وی ناموفق: {exc})"
+            return str(exc)
 
     def _outbounds_add(self, form: dict[str, str]) -> tuple[str, str, str]:
         count, errors = ops.add_links(
@@ -299,58 +327,77 @@ class Handler(BaseHTTPRequestHandler):
             form.get("via", ""),
         )
         if not count:
-            return "/outbounds", "\n".join(errors) or "لینکی اضافه نشد", "err"
+            detail = "\n".join(errors) or self._tr("flash.nothing")
+            return "/outbounds", self._tr("flash.links_invalid") + "\n" + detail, "err"
         ops.render_all()
         warning = self._restart_gateway()
-        ops.remember("apply", f"{count} channel(s) added{warning}")
-        message = f"{count} کانال اضافه شد، کانفیگ رندر شد{warning or ' و گیت‌وی ری‌استارت شد'}"
+        if warning:
+            message = self._tr("flash.channel_added_warn", count=count, error=warning)
+            level = "err"
+        else:
+            message = self._tr("flash.channel_added", count=count)
+            level = "ok"
+        ops.remember("apply", message)
         if errors:
             message += "\n" + "\n".join(errors)
-        return "/outbounds", message, "err" if errors else "ok"
+        return "/outbounds", message, level
 
     def _outbounds_delete(self, form: dict[str, str]) -> tuple[str, str, str]:
         tag = form.get("tag", "")
         if not ops.remove_channel(tag):
-            return "/outbounds", f"کانال «{tag}» پیدا نشد", "err"
+            return "/outbounds", self._tr("flash.channel_missing", tag=tag), "err"
         ops.render_all()
         warning = self._restart_gateway()
-        ops.remember("apply", f"channel {tag} removed{warning}")
-        return "/outbounds", f"کانال {tag} حذف شد{warning or ' و گیت‌وی ری‌استارت شد'}", "ok"
+        if warning:
+            message = self._tr("flash.channel_removed_warn", tag=tag, error=warning)
+            level = "err"
+        else:
+            message = self._tr("flash.channel_removed", tag=tag)
+            level = "ok"
+        ops.remember("apply", message)
+        return "/outbounds", message, level
 
     def _outbounds_toggle(self, form: dict[str, str]) -> tuple[str, str, str]:
         tag = form.get("tag", "")
         state = ops.toggle_channel(tag)
         if state is None:
-            return "/outbounds", f"کانال «{tag}» پیدا نشد", "err"
+            return "/outbounds", self._tr("flash.channel_missing", tag=tag), "err"
         ops.render_all()
         warning = self._restart_gateway()
-        label = "فعال" if state else "غیرفعال"
-        ops.remember("apply", f"channel {tag} -> {label}{warning}")
-        return "/outbounds", f"کانال {tag} {label} شد{warning}", "ok"
+        label = self._tr("common.enabled" if state else "common.disabled")
+        message = self._tr("flash.channel_toggled", tag=tag, state=label)
+        if warning:
+            message += f" ({warning})"
+        ops.remember("apply", message)
+        return "/outbounds", message, "err" if warning else "ok"
 
     def _outbounds_apply(self, form: dict[str, str]) -> tuple[str, str, str]:
         ops.render_all()
         warning = self._restart_gateway()
-        ops.remember("apply", f"configs rendered{warning}")
-        return "/", f"کانفیگ رندر شد{warning or ' و گیت‌وی ری‌استارت شد'}", "ok" if not warning else "err"
+        if warning:
+            message = self._tr("flash.rendered_warn", error=warning)
+            level = "err"
+        else:
+            message = self._tr("flash.rendered")
+            level = "ok"
+        ops.remember("apply", message)
+        return "/", message, level
 
     def _forwarding_add(self, form: dict[str, str]) -> tuple[str, str, str]:
-        try:
-            summary = ops.add_forward(
-                form.get("proto", "tcp"),
-                form.get("listen_ip", ""),
-                form.get("listen", ""),
-                form.get("target", ""),
-            )
-        except ValueError as exc:
-            return "/forwarding", str(exc), "err"
+        summary = ops.add_forward(
+            form.get("proto", "tcp"),
+            form.get("listen_ip", ""),
+            form.get("listen", ""),
+            form.get("target", ""),
+        )
         ops.render_all()
         ok, detail = ops.apply_forwarding()
         if not ok:
             ops.remember("apply", f"forward {summary} saved, apply failed: {detail}")
-            return "/forwarding", f"قانون ذخیره شد اما اعمال ناموفق بود: {detail}", "err"
-        ops.remember("apply", f"forward {summary} applied")
-        return "/forwarding", f"فوروارد {summary} اضافه و اعمال شد", "ok"
+            return "/forwarding", self._tr("flash.forward_add_failed", error=detail), "err"
+        message = self._tr("flash.forward_added", summary=summary)
+        ops.remember("apply", message)
+        return "/forwarding", message, "ok"
 
     def _forwarding_delete(self, form: dict[str, str]) -> tuple[str, str, str]:
         try:
@@ -358,55 +405,63 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             index = -1
         if not ops.remove_forward(index):
-            return "/forwarding", "قانون پیدا نشد", "err"
+            return "/forwarding", self._tr("flash.rule_missing"), "err"
         ops.render_all()
         ok, detail = ops.apply_forwarding()
         if not ok:
-            return "/forwarding", f"قانون حذف شد اما اعمال ناموفق بود: {detail}", "err"
-        ops.remember("apply", "forward rule removed")
-        return "/forwarding", "قانون حذف و فایروال به‌روز شد", "ok"
+            return "/forwarding", self._tr("flash.forward_remove_failed", error=detail), "err"
+        message = self._tr("flash.forward_removed")
+        ops.remember("apply", message)
+        return "/forwarding", message, "ok"
 
     def _forwarding_hop(self, form: dict[str, str]) -> tuple[str, str, str]:
-        try:
-            ops.save_hop(
-                form.get("enabled") == "1",
-                form.get("proto", "udp"),
-                form.get("range", "20000-40000"),
-                form.get("target", ""),
-            )
-        except ValueError as exc:
-            return "/forwarding", str(exc), "err"
+        ops.save_hop(
+            form.get("enabled") == "1",
+            form.get("proto", "udp"),
+            form.get("range", "20000-40000"),
+            form.get("target", ""),
+        )
         ops.render_all()
         ok, detail = ops.apply_forwarding()
         if not ok:
-            return "/forwarding", f"ذخیره شد اما اعمال ناموفق بود: {detail}", "err"
-        ops.remember("apply", "hop settings saved")
-        return "/forwarding", "تنظیمات پورت‌هاپینگ ذخیره و اعمال شد", "ok"
+            return "/forwarding", self._tr("flash.hop_failed", error=detail), "err"
+        message = self._tr("flash.hop_saved")
+        ops.remember("apply", message)
+        return "/forwarding", message, "ok"
 
     def _forwarding_apply(self, form: dict[str, str]) -> tuple[str, str, str]:
         ops.render_all()
         ok, detail = ops.apply_forwarding()
         if not ok:
             ops.remember("apply", f"forwarding apply failed: {detail}")
-            return "/forwarding", f"اعمال ناموفق: {detail}", "err"
-        ops.remember("apply", "forwarding applied")
-        return "/forwarding", "قوانین روی فایروال اعمال شد", "ok"
+            return "/forwarding", self._tr("flash.fwd_failed", error=detail), "err"
+        message = self._tr("flash.fwd_applied")
+        ops.remember("apply", message)
+        return "/forwarding", message, "ok"
 
     def _panel_route(self, form: dict[str, str]) -> tuple[str, str, str]:
         ok, detail = ops.patch_panel_route()
-        ops.remember("panel", detail)
-        return "/", detail, "ok" if ok else "err"
+        if ok:
+            message = self._tr("flash.panel_routed", outbounds=detail)
+        else:
+            message = self._tr("flash.panel_failed", error=detail)
+        ops.remember("panel", message)
+        return "/", message, "ok" if ok else "err"
 
     def _service_action(self, form: dict[str, str]) -> tuple[str, str, str]:
         service = form.get("service", "")
         action = form.get("action", "")
         if service not in {"gateway", "panel", "singbox"}:
-            return "/", "سرویس نامعتبر", "err"
+            return "/", self._tr("flash.bad_service"), "err"
         if action not in {"restart", "start", "stop"}:
-            return "/", "عملیات نامعتبر", "err"
+            return "/", self._tr("flash.bad_action"), "err"
         ops.container_action(service, action)
-        labels = {"restart": "ری‌استارت", "start": "استارت", "stop": "استاپ"}
-        return "/", f"{service}: {labels[action]} انجام شد", "ok"
+        labels = {
+            "restart": self._tr("dash.restart"),
+            "start": self._tr("dash.start"),
+            "stop": self._tr("dash.stop"),
+        }
+        return "/", self._tr("flash.service_done", service=service, action=labels[action]), "ok"
 
 
 def main() -> int:
