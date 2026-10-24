@@ -135,16 +135,22 @@ def patch_api(base_url: str, username: str, password: str, outbound: dict, rule:
     config = merge_config(config, outbound, rule)
     test_url = payload.get("outboundTestUrl") or ""
 
-    def save(value: object) -> dict:
-        body = json.dumps({"xraySetting": value, "outboundTestUrl": test_url}).encode()
-        return _json(
-            _open(f"{base}/panel/api/xray/update", data=body, headers=headers, opener=opener, method="POST")
+    # 3.x reads the template as a form field (JSON in a form body), not as a JSON body.
+    form = urllib.parse.urlencode(
+        {"xraySetting": json.dumps(config, ensure_ascii=False), "outboundTestUrl": test_url}
+    ).encode()
+    response = _json(
+        _open(
+            f"{base}/panel/api/xray/update",
+            data=form,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "X-CSRF-Token": token,
+            },
+            opener=opener,
+            method="POST",
         )
-
-    response = save(config)
-    if not response.get("success"):
-        # some builds only accept the legacy JSON-encoded string form
-        response = save(json.dumps(config, ensure_ascii=False))
+    )
     if not response.get("success"):
         raise PanelError(f"panel rejected the template: {response.get('msg')}")
 
