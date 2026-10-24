@@ -81,9 +81,11 @@ class NftRenderTests(unittest.TestCase):
         )
         self.assertTrue(any("DOCKER-USER" in command for command in commands))
 
-    def test_no_docker_allow_for_external_target(self):
+    def test_external_target_gets_no_destination_rule(self):
         commands = forward.docker_allows(base(rules=[{"proto": "tcp", "listen": "443", "target": "10.0.0.5:443"}]))
-        self.assertEqual(commands, [])
+        self.assertEqual(len(commands), 1)
+        self.assertIn("--ctstate DNAT", commands[0])
+        self.assertFalse(any("10.0.0.5" in command for command in commands))
 
 
 if __name__ == "__main__":

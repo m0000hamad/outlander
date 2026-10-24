@@ -7,8 +7,10 @@ Covers two things the panel cannot do on its own:
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
+import socket
 from pathlib import Path
 
 FORWARDING = Path("config/forwarding.json")
@@ -55,6 +57,24 @@ def _target(value: str) -> str:
     if port and (not port.isdigit() or not 0 < int(port) < 65536):
         raise ValueError(f"invalid target port '{port}'")
     return f"{host}:{port}" if port else host
+
+
+def resolve_target(value: str) -> str:
+    """Turn a host[:port] target into ip[:port]; nftables cannot resolve names."""
+    host, _, port = value.partition(":")
+    try:
+        ipaddress.ip_address(host)
+        return value
+    except ValueError:
+        pass
+    try:
+        info = socket.getaddrinfo(host, None, socket.AF_INET, socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise ValueError(f"cannot resolve forward target '{host}': {exc}") from exc
+    if not info:
+        raise ValueError(f"no IPv4 address for forward target '{host}'")
+    address = info[0][4][0]
+    return f"{address}:{port}" if port else address
 
 
 def normalise_rule(rule: dict) -> dict:
@@ -105,7 +125,7 @@ def nft_text(data: dict) -> str:
     hop = data.get("hop") or {}
     if hop.get("enabled"):
         lines.append(
-            f"    {hop.get('proto', 'udp')} dport {hop['range']} dnat ip to {_target(hop['target'])}"
+            f"    {hop.get('proto', 'udp')} dport {hop['range']} dnat ip to {resolve_target(_target(hop['target']))}"
         )
     for raw in data.get("rules", []):
         rule = normalise_rule(raw)
@@ -118,7 +138,7 @@ def nft_text(data: dict) -> str:
                 parts.append(f"meta l4proto {proto}")
             else:
                 parts.append(f"{proto} dport {rule['listen']}")
-            parts.append(f"dnat ip to {rule['target']}")
+            parts.append(f"dnat ip to {resolve_target(rule['target'])}")
             lines.append("    " + " ".join(parts))
     lines += [
         "  }",
@@ -136,15 +156,19 @@ def nft_text(data: dict) -> str:
 
 
 def docker_allows(data: dict) -> list[str]:
-    commands: list[str] = []
+    # accept everything our nat table DNATs, whatever the destination is
+    commands: list[str] = [
+        "iptables -C DOCKER-USER -m conntrack --ctstate DNAT -j ACCEPT 2>/dev/null || "
+        "iptables -I DOCKER-USER 1 -m conntrack --ctstate DNAT -j ACCEPT 2>/dev/null || true"
+    ]
     hop = data.get("hop") or {}
     if hop.get("enabled"):
-        host, _, port = _target(hop["target"]).partition(":")
+        host, _, port = resolve_target(_target(hop["target"])).partition(":")
         if host.startswith("172.28.60.") and port:
             commands.append(_allow_command(host, port, hop.get("proto", "udp")))
     for raw in data.get("rules", []):
         rule = normalise_rule(raw)
-        host, _, port = rule["target"].partition(":")
+        host, _, port = resolve_target(rule["target"]).partition(":")
         if not host.startswith("172.28.60."):
             continue
         protos = ["tcp", "udp"] if rule["proto"] == "both" else [rule["proto"]]
