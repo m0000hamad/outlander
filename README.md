@@ -2,6 +2,7 @@
 
 Chained, multi-protocol proxy infrastructure for a single Ubuntu box.
 
+- **Console**: a small web UI (:8099) to paste outbound links, add port/IP forwards and apply them instantly.
 - **Panel**: 3x-ui (the Sanaei panel) on host networking, so REALITY and per-client stats see real client IPs.
 - **Gateway**: a separate Xray instance that owns *egress*. It turns any share link (`vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `tuic://`) into a health-checked upstream, balances across all of them with `leastPing`, and falls back to direct.
 - **Extra protocols**: Hysteria2 (salamander obfs + port hopping) and TUIC via sing-box, bridged into the gateway over authenticated SOCKS5.
@@ -15,9 +16,12 @@ Persian guide: [README.fa.md](README.fa.md)
 
 ```bash
 git clone <your-repo> outlander && cd outlander
-sudo bash scripts/install.sh --outbound 'vless://<uuid>@host:80?encryption=none&security=none&type=ws&host=cdn.example.ir&path=%2Flink%2F<token>#cdn2'
+sudo bash scripts/install.sh
 make doctor
 ```
+
+Then open the console at `http://<server>:8099`, log in with the printed credentials and paste your
+CDN link(s) into **outbounds**.
 
 The installer provisions Docker, BBR/fq, the `.env` secrets, renders configs, starts the stack, sets panel credentials and wires the panel's outbound to the gateway.
 
@@ -37,6 +41,7 @@ make test | make doctor | make backup | make panel
 
 | Purpose | Port |
 |---|---|
+| Console | `CONSOLE_PORT` (8099) |
 | Panel | `PANEL_PORT` (2053) |
 | REALITY | 443/tcp |
 | VLESS+WS behind CDN | 8080/tcp |
@@ -49,6 +54,7 @@ make test | make doctor | make backup | make panel
 
 ## Docs
 
+- [docs/CONSOLE.md](docs/CONSOLE.md) - the web UI
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - how the pieces fit and why
 - [docs/PANEL.md](docs/PANEL.md) - creating inbounds in 3x-ui
 - [docs/CDN.md](docs/CDN.md) - CDN fronting, origin lockdown, parameters

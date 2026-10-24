@@ -59,6 +59,37 @@ services:
     ulimits: *nofile
     logging: *logging
 
+  console:
+    build: ./console
+    image: outlander-console:latest
+    container_name: ol-console
+    restart: unless-stopped
+    depends_on:
+      - gateway
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      CONSOLE_USER: ${CONSOLE_USER:-admin}
+      CONSOLE_PASSWORD: ${CONSOLE_PASSWORD:-}
+      CONSOLE_PORT: ${CONSOLE_PORT:-8099}
+      CONSOLE_STATE: /data/state.json
+      OUTLANDER_ROOT: /repo
+      DOCKER_SOCK: /var/run/docker.sock
+      HOST_UID: ${HOST_UID:-0}
+      HOST_GID: ${HOST_GID:-0}
+    volumes:
+      - ./:/repo
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data/console:/data
+    logging: *logging
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8099/healthz',timeout=4)"]
+      interval: 30s
+      timeout: 8s
+      retries: 3
+
   singbox:
     image: ghcr.io/sagernet/sing-box:latest
     container_name: ol-singbox

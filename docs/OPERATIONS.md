@@ -5,9 +5,31 @@
 ```bash
 make ps                     # what is running
 make logs                   # follow all logs
+make console-logs           # follow the web console
 docker compose logs -f gateway
 python3 -m outlander list   # active upstreams
 make doctor                 # host + config sanity
+```
+
+## Web console
+
+```bash
+docker compose up -d --build console     # rebuild after a git pull
+docker restart ol-console                # restart (active sessions drop)
+```
+
+- URL `http://<server>:${CONSOLE_PORT}` (default 8099), credentials from `.env`.
+- Change the password: edit `CONSOLE_PASSWORD` in `.env`, then `docker compose up -d console`.
+- The console applies outbound/forward changes immediately; it is the same code path as the CLI.
+- It has root-equivalent reach (docker socket + host netns). Do not expose the port publicly; use
+  `ssh -L 8099:127.0.0.1:8099 root@server` or firewall it. Details: `docs/CONSOLE.md`.
+
+Forwarding rules survive reboots through `outlander-forward.service` (installed by
+`scripts/install.sh`):
+
+```bash
+systemctl status outlander-forward
+sudo systemctl restart outlander-forward    # re-apply config/nftables/outlander.nft
 ```
 
 ## Updating

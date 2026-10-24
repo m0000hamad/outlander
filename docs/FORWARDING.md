@@ -38,10 +38,15 @@ hosting provider first - some filter UDP in `20000+`.
 ```bash
 python3 -m outlander forward add --proto tcp  --listen 3389     --target 10.0.0.5:3389
 python3 -m outlander forward add --proto both --listen 50000-50100 --target 172.28.60.12
+python3 -m outlander forward add --proto tcp  --listen '*' --listen-ip 203.0.113.5 --target 10.0.0.9
 python3 -m outlander forward render
 sudo bash scripts/forward-apply.sh
 python3 -m outlander forward list
 ```
+
+The `*` form forwards **every port** that arrives on `listen_ip` to the target host, preserving port
+numbers (`ip daddr 203.0.113.5 meta l4proto tcp dnat ip to 10.0.0.9`). It needs both `listen_ip` and
+a target without a port, because the port is whatever the client asked for.
 
 Notes:
 

@@ -25,6 +25,8 @@
                         upstream server (abr02...)  ──► international internet
 ```
 
+`ol-console` is the control plane: a tiny web UI with the docker socket mounted, host networking and `NET_ADMIN`. It edits `config/inventory.json` / `config/forwarding.json`, re-renders, restarts the gateway and reloads nftables. It sits outside the data path, so a console restart never drops traffic.
+
 `ol-singbox` also serves *inbound* Hysteria2/TUIC for clients and sends their egress back to
 `ol-gateway` (`route.final = gw`). One routing plane, two protocol families.
 
@@ -68,5 +70,5 @@ adding a channel is enough - no routing edits.
 | everything direct, CDN ignored | no enabled channels / render not applied | `outlander list`, `render`, restart gateway |
 | one channel flapping | upstream dead | balancer skips it; remove or change `--tag` |
 | DNS for the CDN host fails | ISP poisoning | `--resolve <ip>` |
-| panel traffic bypasses chain | template reverted by an upgrade | `make panel` |
+| panel traffic bypasses chain | template reverted by an upgrade | `make panel` or the console button |
 | hy2 handshake fails | cert/SNI/obfs mismatch | `make cert`, compare `.env` with the client |

@@ -61,6 +61,9 @@ if [[ ! -f .env ]]; then
   sed -i "s|^PANEL_PASSWORD=.*|PANEL_PASSWORD=${PANEL_PASS}|" .env
   sed -i "s|^HY2_PASSWORD=.*|HY2_PASSWORD=${HY2_PASS}|" .env
   sed -i "s|^HY2_OBFS_PASSWORD=.*|HY2_OBFS_PASSWORD=${OBFS_PASS}|" .env
+  sed -i "s|^CONSOLE_PASSWORD=.*|CONSOLE_PASSWORD=${PANEL_PASS}|" .env
+  sed -i "s|^HOST_UID=.*|HOST_UID=${SUDO_UID:-0}|" .env
+  sed -i "s|^HOST_GID=.*|HOST_GID=${SUDO_GID:-0}|" .env
   if [[ -n "$PANEL_PORT" ]]; then sed -i "s|^PANEL_PORT=.*|PANEL_PORT=${PANEL_PORT}|" .env; fi
   if [[ -n "$HY2_DOMAIN" ]]; then sed -i "s|^HY2_SNI=.*|HY2_SNI=${HY2_DOMAIN}|" .env; fi
   if [[ -z "${HY2_DOMAIN:-}" ]]; then sed -i "s|^HY2_ENABLED=.*|HY2_ENABLED=0|" .env; fi
@@ -88,7 +91,7 @@ if [[ "${HY2_ENABLED:-0}" == "1" ]]; then
 fi
 
 say "starting the stack"
-docker compose up -d
+docker compose up -d --build
 
 say "waiting for the panel database"
 for _ in $(seq 1 60); do
@@ -114,6 +117,25 @@ if [[ -f config/nftables/outlander.nft ]]; then
   bash config/nftables/docker-allow.sh || true
 fi
 
+say "installing the forwarding systemd unit (rules survive reboot)"
+cat > /etc/systemd/system/outlander-forward.service <<EOF
+[Unit]
+Description=Outlander nftables forwarding rules
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f ${ROOT}/config/nftables/outlander.nft
+ExecStartPost=/bin/bash ${ROOT}/config/nftables/docker-allow.sh
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload >/dev/null 2>&1 || true
+systemctl enable --now outlander-forward.service >/dev/null 2>&1 || true
+
 if command -v ufw >/dev/null 2>&1; then
   ufw allow 22/tcp >/dev/null 2>&1 || true
   ufw allow "${PANEL_PORT:-2053}/tcp" >/dev/null 2>&1 || true
@@ -124,6 +146,7 @@ if command -v ufw >/dev/null 2>&1; then
   ufw allow 8388/tcp >/dev/null 2>&1 || true
   ufw allow 8388/udp >/dev/null 2>&1 || true
   ufw allow "${HY2_PORT:-8443}/udp" >/dev/null 2>&1 || true
+  ufw allow "${CONSOLE_PORT:-8099}/tcp" >/dev/null 2>&1 || true
   ufw allow 20000:40000/udp >/dev/null 2>&1 || true
 fi
 
@@ -134,6 +157,10 @@ cat <<EOF
 ────────────────────────────────────────────────────────────
  Outlander is up.
 
+ Console   : http://${IP}:${CONSOLE_PORT:-8099}
+ User      : ${CONSOLE_USER:-admin}
+ Password  : ${CONSOLE_PASSWORD}
+
  Panel     : http://${IP}:${PANEL_PORT:-2053}/${PANEL_PATH}
  Username  : ${PANEL_USERNAME}
  Password  : ${PANEL_PASSWORD}
@@ -142,9 +169,9 @@ cat <<EOF
  Channels  : $(python3 -m outlander list 2>/dev/null | tail -n +2 | wc -l)
 
  Next:
-   1. open the panel and create inbounds (docs/PANEL.md)
-   2. add more CDN outbounds: python3 -m outlander add '<link>' --tag cdn3
-      then: python3 -m outlander render && docker compose restart gateway
-   3. checks: make doctor
+   1. open the console, paste your CDN outbound link(s), press "افزودن و اعمال"
+   2. add forwarding rules from the console (or `outlander forward add ...`)
+   3. open the panel and create client inbounds (docs/PANEL.md)
+   4. checks: make doctor
 ────────────────────────────────────────────────────────────
 EOF

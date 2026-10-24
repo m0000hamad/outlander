@@ -3,7 +3,7 @@ PY ?= python3
 COMPOSE ?= docker compose
 ROOT := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 
-.PHONY: help init render up down restart logs ps test doctor panel forward forward-apply cert backup shell clean
+.PHONY: help init render up down restart logs ps test doctor panel forward forward-apply cert backup shell console-logs clean
 
 help:
 	@echo "make init         create the channel inventory"
@@ -18,6 +18,7 @@ help:
 	@echo "make forward-apply apply the generated nftables rules"
 	@echo "make cert DOMAIN=x issue/renew a certificate for hysteria2"
 	@echo "make backup       archive state into backups/"
+	@echo "make console-logs follow the web console logs"
 	@echo "make shell        shell inside the gateway container"
 
 init:
@@ -67,6 +68,9 @@ backup:
 
 shell:
 	docker exec -it ol-gateway /bin/sh
+
+console-logs:
+	$(COMPOSE) logs -f --tail=100 console
 
 clean:
 	rm -f config/xray/config.json config/sing-box/config.json config/nftables/outlander.nft

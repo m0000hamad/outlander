@@ -11,7 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import forward, render
+from . import forward, panel, render
 from .uri import LinkError, parse
 
 VERSION = "1.0.0"
@@ -171,39 +171,21 @@ def cmd_panel_patch(args: argparse.Namespace) -> int:
         if stopped:
             print("panel paused while patching")
 
-    backup = db.with_suffix(".db.bak")
+    backup = None
     outbound, rule = render.panel_fragments(inventory, env)
     try:
-        shutil.copy2(db, backup)
-        connection = sqlite3.connect(str(db))
-        try:
-            cursor = connection.execute("SELECT value FROM settings WHERE key = 'xrayTemplateConfig'")
-            row = cursor.fetchone()
-            if not row:
-                print("error: xrayTemplateConfig row not found in the panel database", file=sys.stderr)
-                return 2
-            template = json.loads(row[0]) if row[0].strip() else {}
-
-            outbounds = [item for item in template.get("outbounds", []) if item.get("tag") != outbound["tag"]]
-            outbounds.append(outbound)
-            template["outbounds"] = outbounds
-
-            routing = template.setdefault("routing", {})
-            rules = [item for item in routing.get("rules", []) if item.get("outboundTag") != rule["outboundTag"]]
-            rules.append(rule)
-            routing["rules"] = rules
-            routing.setdefault("domainStrategy", "IPIfNonMatch")
-
-            payload = json.dumps(template, indent=2, ensure_ascii=False)
-            connection.execute("UPDATE settings SET value = ? WHERE key = 'xrayTemplateConfig'", (payload,))
-            connection.commit()
-        finally:
-            connection.close()
+        backup = panel.backup(db)
+        summary = panel.patch_database(db, outbound, rule)
     except PermissionError:
         print(f"error: no permission to write {db} - re-run with sudo", file=sys.stderr)
         if stopped and shutil.which("docker"):
             subprocess.run(["docker", "start", "ol-panel"], check=False)
         return 1
+    except KeyError:
+        print("error: xrayTemplateConfig row not found in the panel database", file=sys.stderr)
+        if stopped and shutil.which("docker"):
+            subprocess.run(["docker", "start", "ol-panel"], check=False)
+        return 2
     except (sqlite3.Error, json.JSONDecodeError) as exc:
         print(f"error: could not patch the panel database: {exc}", file=sys.stderr)
         if stopped and shutil.which("docker"):
@@ -211,6 +193,7 @@ def cmd_panel_patch(args: argparse.Namespace) -> int:
         return 1
 
     print(f"panel template patched (backup: {backup.name})")
+    print(f"outbounds: {', '.join(summary['outbounds'])} | routing rules: {summary['rules']}")
     if stopped and shutil.which("docker"):
         subprocess.run(["docker", "start", "ol-panel"], check=False)
         print("panel restarted")
@@ -229,10 +212,22 @@ def cmd_forward_render(args: argparse.Namespace) -> int:
 def cmd_forward_add(args: argparse.Namespace) -> int:
     root = repo_root()
     data = forward.load(root)
-    data["rules"].append({"proto": args.proto, "listen": args.listen, "target": args.target})
+    try:
+        rule = forward.normalise_rule(
+            {
+                "proto": args.proto,
+                "listen": args.listen,
+                "listen_ip": args.listen_ip or "",
+                "target": args.target,
+            }
+        )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    data["rules"].append(rule)
     forward.save(root, data)
     forward.render(root)
-    print(f"forward {args.proto}/{args.listen} -> {args.target} added")
+    print(f"forward {rule['proto']}/{rule['listen']} -> {rule['target']} added")
     return 0
 
 
@@ -355,8 +350,9 @@ def build_parser() -> argparse.ArgumentParser:
     fwd_sub.add_parser("list", help="show forwarding rules").set_defaults(func=cmd_forward_list)
     fwd_add = fwd_sub.add_parser("add", help="add an L4 forward")
     fwd_add.add_argument("--proto", default="tcp", choices=["tcp", "udp", "both"])
-    fwd_add.add_argument("--listen", required=True)
-    fwd_add.add_argument("--target", required=True)
+    fwd_add.add_argument("--listen", required=True, help="port, range like 50000-50100, or * for every port")
+    fwd_add.add_argument("--listen-ip", help="only forward traffic arriving on this IP")
+    fwd_add.add_argument("--target", required=True, help="host or host:port")
     fwd_add.set_defaults(func=cmd_forward_add)
 
     return parser
