@@ -244,10 +244,14 @@ def cmd_forward_add(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     conflicts = forward.conflicting_ports(rule)
-    if conflicts:
+    if conflicts and not args.force:
+        described = []
+        for port in conflicts:
+            owner = forward.listener_owner(port)
+            described.append(f"{port} [{owner}]" if owner else str(port))
         print(
-            f"error: port(s) {', '.join(str(port) for port in conflicts)} already have a listener on this host; "
-            "DNAT would hijack that service. Pick another port or use --listen-ip.",
+            f"error: {', '.join(described)} already in use on this host; DNAT would hijack that service. "
+            "Pick another port or use --listen-ip, or --force if you really mean to take the port over.",
             file=sys.stderr,
         )
         return 2
@@ -389,6 +393,7 @@ def build_parser() -> argparse.ArgumentParser:
     fwd_add.add_argument("--listen", required=True, help="port, range like 50000-50100, or * for every port")
     fwd_add.add_argument("--listen-ip", help="only forward traffic arriving on this IP")
     fwd_add.add_argument("--target", required=True, help="host or host:port")
+    fwd_add.add_argument("--force", action="store_true", help="allow a port that already has a listener (dangerous)")
     fwd_add.set_defaults(func=cmd_forward_add)
 
     return parser

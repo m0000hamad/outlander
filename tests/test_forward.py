@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -5,40 +6,63 @@ from pathlib import Path
 from outlander import forward
 
 PROC_HEADER = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
+LISTENING = "   0: 00000000:0050 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 1\n"
+ESTABLISHED = "   1: 0100007F:1F90 0100007F:9C40 01 00000000:00000000 00:00000000 00000000     0        0 2\n"
+LISTENING_V6 = "   0: 00000000000000000000000000000000:20FB 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 3\n"
+
+
+def write_proc_fixture(root: Path) -> None:
+    (root / "tcp").write_text(PROC_HEADER + LISTENING + ESTABLISHED, encoding="utf-8")
+    (root / "tcp6").write_text(PROC_HEADER + LISTENING_V6, encoding="utf-8")
 
 
 class ListeningPortTests(unittest.TestCase):
-    def fixture(self, root: Path) -> None:
-        listening = "   0: 00000000:0050 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 1\n"
-        established = "   1: 0100007F:1F90 0100007F:9C40 01 00000000:00000000 00:00000000 00000000     0        0 2\n"
-        v6 = "   0: 00000000000000000000000000000000:20FB 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 3\n"
-        (root / "tcp").write_text(PROC_HEADER + listening + established, encoding="utf-8")
-        (root / "tcp6").write_text(PROC_HEADER + v6, encoding="utf-8")
-
     def test_detects_listeners(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.fixture(Path(tmp))
+            write_proc_fixture(Path(tmp))
             self.assertEqual(forward.listening_ports(tmp), {80, 8443})
 
     def test_conflict_on_single_port(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.fixture(Path(tmp))
+            write_proc_fixture(Path(tmp))
             self.assertEqual(forward.conflicting_ports({"listen": "80"}, tmp), [80])
             self.assertEqual(forward.conflicting_ports({"listen": "2083"}, tmp), [])
 
     def test_conflict_ignored_with_listen_ip(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.fixture(Path(tmp))
+            write_proc_fixture(Path(tmp))
             self.assertEqual(forward.conflicting_ports({"listen": "80", "listen_ip": "203.0.113.5"}, tmp), [])
 
     def test_conflict_in_range(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.fixture(Path(tmp))
+            write_proc_fixture(Path(tmp))
             self.assertEqual(forward.conflicting_ports({"listen": "8400-8500"}, tmp), [8443])
             self.assertEqual(forward.conflicting_ports({"listen": "20000-40000"}, tmp), [])
 
     def test_missing_proc_net(self):
         self.assertEqual(forward.listening_ports("/definitely/not/here"), set())
+
+
+class ListenerOwnerTests(unittest.TestCase):
+    def test_socket_inode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write_proc_fixture(Path(tmp))
+            self.assertEqual(forward.socket_inode(80, tmp), "1")
+            self.assertEqual(forward.socket_inode(8443, tmp), "3")
+            self.assertEqual(forward.socket_inode(2083, tmp), "")
+
+    @unittest.skipIf(os.name == "nt", "needs /proc style symlinks")
+    def test_listener_owner(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "net").mkdir()
+            write_proc_fixture(root / "net")
+            process = root / "4242"
+            (process / "fd").mkdir(parents=True)
+            (process / "comm").write_text("x-ui\n", encoding="utf-8")
+            os.symlink("socket:[1]", process / "fd" / "7")
+            self.assertEqual(forward.listener_owner(80, tmp), "x-ui (pid 4242)")
+            self.assertEqual(forward.listener_owner(2083, tmp), "")
 
 
 class DuplicateRuleTests(unittest.TestCase):
@@ -59,7 +83,10 @@ class DuplicateRuleTests(unittest.TestCase):
 
 
 def base(**overrides):
-    data = {"hop": {"enabled": False, "proto": "udp", "range": "20000-40000", "target": "172.28.60.12:8443"}, "rules": []}
+    data = {
+        "hop": {"enabled": False, "proto": "udp", "range": "20000-40000", "target": "172.28.60.12:8443"},
+        "rules": [],
+    }
     data.update(overrides)
     return data
 

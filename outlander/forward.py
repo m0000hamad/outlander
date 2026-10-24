@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import os
 import re
 import socket
 from pathlib import Path
@@ -129,6 +130,56 @@ def listening_ports(proc_net: str = "/proc/net") -> set[int]:
             except (IndexError, ValueError):
                 continue
     return ports
+
+
+def socket_inode(port: int, proc_net: str = "/proc/net") -> str:
+    """Inode of the LISTEN socket on ``port`` (empty when nothing listens)."""
+    for name in ("tcp", "tcp6"):
+        try:
+            lines = (Path(proc_net) / name).read_text(encoding="utf-8").splitlines()[1:]
+        except OSError:
+            continue
+        for line in lines:
+            fields = line.split()
+            if len(fields) < 10 or fields[3] != "0A":
+                continue
+            try:
+                if int(fields[1].split(":")[1], 16) == port:
+                    return fields[9]
+            except (IndexError, ValueError):
+                continue
+    return ""
+
+
+def listener_owner(port: int, proc_root: str = "/proc") -> str:
+    """Best effort process name holding a listening socket (Linux only)."""
+    inode = socket_inode(port, str(Path(proc_root) / "net"))
+    if not inode:
+        return ""
+    target = f"socket:[{inode}]"
+    try:
+        entries = list(Path(proc_root).iterdir())
+    except OSError:
+        return ""
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        try:
+            descriptors = list((entry / "fd").iterdir())
+        except OSError:
+            continue
+        for descriptor in descriptors:
+            try:
+                if os.readlink(descriptor) != target:
+                    continue
+            except OSError:
+                continue
+            try:
+                name = (entry / "comm").read_text(encoding="utf-8").strip()
+            except OSError:
+                name = ""
+            return f"{name} (pid {entry.name})" if name else f"pid {entry.name}"
+    return ""
 
 
 def conflicting_ports(rule: dict, proc_net: str = "/proc/net") -> list[int]:

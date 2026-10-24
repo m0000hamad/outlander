@@ -228,8 +228,11 @@ def add_forward(proto: str, listen_ip: str, listen: str, target: str) -> str:
         raise OpError("err.invalid_rule", detail=str(exc)) from exc
     conflicts = forward.conflicting_ports(rule)
     if conflicts:
-        busy = ", ".join(str(port) for port in conflicts)
-        raise OpError("err.forward_busy", ports=busy)
+        ports = ", ".join(str(port) for port in conflicts)
+        owner = forward.listener_owner(conflicts[0])
+        if owner:
+            raise OpError("err.forward_busy", ports=ports, owner=owner)
+        raise OpError("err.forward_busy_unknown", ports=ports)
     for existing in data["rules"]:
         if forward.same_listener(existing, rule):
             raise OpError("err.forward_duplicate", listen=rule["listen"])
