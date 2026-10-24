@@ -1,6 +1,44 @@
+import tempfile
 import unittest
+from pathlib import Path
 
 from outlander import forward
+
+PROC_HEADER = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
+
+
+class ListeningPortTests(unittest.TestCase):
+    def fixture(self, root: Path) -> None:
+        listening = "   0: 00000000:0050 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 1\n"
+        established = "   1: 0100007F:1F90 0100007F:9C40 01 00000000:00000000 00:00000000 00000000     0        0 2\n"
+        v6 = "   0: 00000000000000000000000000000000:20FB 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 3\n"
+        (root / "tcp").write_text(PROC_HEADER + listening + established, encoding="utf-8")
+        (root / "tcp6").write_text(PROC_HEADER + v6, encoding="utf-8")
+
+    def test_detects_listeners(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.fixture(Path(tmp))
+            self.assertEqual(forward.listening_ports(tmp), {80, 8443})
+
+    def test_conflict_on_single_port(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.fixture(Path(tmp))
+            self.assertEqual(forward.conflicting_ports({"listen": "80"}, tmp), [80])
+            self.assertEqual(forward.conflicting_ports({"listen": "2083"}, tmp), [])
+
+    def test_conflict_ignored_with_listen_ip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.fixture(Path(tmp))
+            self.assertEqual(forward.conflicting_ports({"listen": "80", "listen_ip": "203.0.113.5"}, tmp), [])
+
+    def test_conflict_in_range(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.fixture(Path(tmp))
+            self.assertEqual(forward.conflicting_ports({"listen": "8400-8500"}, tmp), [8443])
+            self.assertEqual(forward.conflicting_ports({"listen": "20000-40000"}, tmp), [])
+
+    def test_missing_proc_net(self):
+        self.assertEqual(forward.listening_ports("/definitely/not/here"), set())
 
 
 def base(**overrides):

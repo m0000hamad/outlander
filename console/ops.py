@@ -214,6 +214,13 @@ def add_forward(proto: str, listen_ip: str, listen: str, target: str) -> str:
     rule = forward.normalise_rule(
         {"proto": proto, "listen_ip": listen_ip, "listen": listen, "target": target}
     )
+    conflicts = forward.conflicting_ports(rule)
+    if conflicts:
+        busy = ", ".join(str(port) for port in conflicts)
+        raise ValueError(
+            f"پورت {busy} همین حالا روی سرور سرویس دارد؛ فوروارد کردنش آن سرویس را می‌خواباند. "
+            "پورت دیگری بدهید یا IP ورودی را مشخص کنید."
+        )
     for existing in data["rules"]:
         if existing.get("listen") == rule["listen"] and (existing.get("listen_ip") or "") == rule["listen_ip"] \
                 and existing.get("proto") == rule["proto"]:

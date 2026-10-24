@@ -70,6 +70,12 @@ resolved to a single IPv4 address, because nftables cannot write a rule for a na
 several addresses. If the DNS record changes, re-render: `outlander forward render && make
 forward-apply`.
 
+The CLI and the console refuse a rule whose listen port already has a listener on the host (443, 2053,
+8080, ...). DNAT is evaluated before the local service, so such a forward silently hijacks it - that
+
+is what breaks a site running behind Caddy or a docker-proxy port. Use `--listen-ip` to forward only a
+specific address, or pick a free port.
+
 Docker sets the `FORWARD` policy to `DROP`, so a DNAT'd packet heading for an *external* host is
 silently dropped unless something accepts it. The generated `config/nftables/docker-allow.sh`
 therefore always starts with:

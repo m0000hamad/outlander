@@ -243,6 +243,14 @@ def cmd_forward_add(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    conflicts = forward.conflicting_ports(rule)
+    if conflicts:
+        print(
+            f"error: port(s) {', '.join(str(port) for port in conflicts)} already have a listener on this host; "
+            "DNAT would hijack that service. Pick another port or use --listen-ip.",
+            file=sys.stderr,
+        )
+        return 2
     data["rules"].append(rule)
     forward.save(root, data)
     forward.render(root)

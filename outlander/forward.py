@@ -112,6 +112,39 @@ def _allow_command(host: str, port: str, proto: str) -> str:
     )
 
 
+def listening_ports(proc_net: str = "/proc/net") -> set[int]:
+    """Ports with a LISTEN socket in the current network namespace."""
+    ports: set[int] = set()
+    for name in ("tcp", "tcp6"):
+        try:
+            lines = (Path(proc_net) / name).read_text(encoding="utf-8").splitlines()[1:]
+        except OSError:
+            continue
+        for line in lines:
+            fields = line.split()
+            if len(fields) < 4 or fields[3] != "0A":
+                continue
+            try:
+                ports.add(int(fields[1].split(":")[1], 16))
+            except (IndexError, ValueError):
+                continue
+    return ports
+
+
+def conflicting_ports(rule: dict, proc_net: str = "/proc/net") -> list[int]:
+    """Ports a DNAT rule would hijack from an already listening service."""
+    if rule.get("listen_ip") or rule.get("listen") == "*":
+        return []
+    listen = str(rule.get("listen") or "")
+    busy = listening_ports(proc_net)
+    if "-" in listen:
+        low, _, high = listen.partition("-")
+        if not low.isdigit() or not high.isdigit():
+            return []
+        return sorted(port for port in busy if int(low) <= port <= int(high))
+    return [int(listen)] if listen.isdigit() and int(listen) in busy else []
+
+
 def nft_text(data: dict) -> str:
     lines: list[str] = [
         "#!/usr/sbin/nft -f",
