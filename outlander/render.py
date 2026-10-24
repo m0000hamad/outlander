@@ -246,7 +246,7 @@ def gateway_config(inventory: dict, env: dict | None = None) -> dict:
         "routing": {"domainStrategy": "IPIfNonMatch", "rules": rules},
     }
     if balancers:
-        config["balancers"] = balancers
+        config["routing"]["balancers"] = balancers
         config["burstObservatory"] = {
             "subjectSelector": ["ol-"],
             "pingConfig": {

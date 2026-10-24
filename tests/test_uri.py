@@ -129,7 +129,7 @@ class RenderTests(unittest.TestCase):
         self.assertIn("ol-cdn-cdn2", tags)
         self.assertIn("ol-hy2-hy2a", tags)
         self.assertEqual(tags[-2:], ["direct", "block"])
-        self.assertEqual([b["tag"] for b in config["balancers"]], ["ol-bal-cdn", "ol-bal-hy2", "ol-auto"])
+        self.assertEqual([b["tag"] for b in config["routing"]["balancers"]], ["ol-bal-cdn", "ol-bal-hy2", "ol-auto"])
         last = config["routing"]["rules"][-1]
         self.assertEqual(last["balancerTag"], "ol-auto")
         self.assertIn("burstObservatory", config)
