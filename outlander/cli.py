@@ -251,6 +251,14 @@ def cmd_forward_add(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    duplicate = forward.find_duplicate(data["rules"], rule)
+    if duplicate:
+        print(
+            f"error: a rule for {duplicate.get('listen')} already exists ({duplicate.get('proto')} -> "
+            f"{duplicate.get('target')})",
+            file=sys.stderr,
+        )
+        return 2
     data["rules"].append(rule)
     forward.save(root, data)
     forward.render(root)

@@ -222,9 +222,10 @@ def add_forward(proto: str, listen_ip: str, listen: str, target: str) -> str:
             "پورت دیگری بدهید یا IP ورودی را مشخص کنید."
         )
     for existing in data["rules"]:
-        if existing.get("listen") == rule["listen"] and (existing.get("listen_ip") or "") == rule["listen_ip"] \
-                and existing.get("proto") == rule["proto"]:
-            raise ValueError("a rule for this port/ip already exists")
+        if forward.same_listener(existing, rule):
+            raise ValueError(
+                f"قانونی برای پورت {rule['listen']} از قبل وجود دارد؛ اول همان را حذف کنید."
+            )
     data["rules"].append(rule)
     forward.save(ROOT, data)
     return f"{rule['proto']}/{rule['listen']} -> {rule['target']}"

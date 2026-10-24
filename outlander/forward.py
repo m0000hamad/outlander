@@ -145,6 +145,22 @@ def conflicting_ports(rule: dict, proc_net: str = "/proc/net") -> list[int]:
     return [int(listen)] if listen.isdigit() and int(listen) in busy else []
 
 
+def same_listener(rule: dict, other: dict) -> bool:
+    """True when two rules would fight over the same listen port/address."""
+    if (rule.get("listen"), rule.get("listen_ip") or "") != (other.get("listen"), other.get("listen_ip") or ""):
+        return False
+    left = rule.get("proto") or "tcp"
+    right = other.get("proto") or "tcp"
+    return left == right or "both" in (left, right)
+
+
+def find_duplicate(rules: list[dict], rule: dict) -> dict | None:
+    for existing in rules:
+        if same_listener(rule, existing):
+            return existing
+    return None
+
+
 def nft_text(data: dict) -> str:
     lines: list[str] = [
         "#!/usr/sbin/nft -f",

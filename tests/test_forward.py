@@ -41,6 +41,23 @@ class ListeningPortTests(unittest.TestCase):
         self.assertEqual(forward.listening_ports("/definitely/not/here"), set())
 
 
+class DuplicateRuleTests(unittest.TestCase):
+    def test_same_proto_is_duplicate(self):
+        existing = {"proto": "tcp", "listen": "2083", "listen_ip": "", "target": "10.0.0.5"}
+        rule = {"proto": "tcp", "listen": "2083", "listen_ip": "", "target": "10.0.0.6"}
+        self.assertIsNotNone(forward.find_duplicate([existing], rule))
+
+    def test_both_covers_tcp(self):
+        existing = {"proto": "both", "listen": "2083", "listen_ip": "", "target": "10.0.0.5"}
+        rule = {"proto": "tcp", "listen": "2083", "listen_ip": "", "target": "10.0.0.6"}
+        self.assertIsNotNone(forward.find_duplicate([existing], rule))
+
+    def test_different_address_is_allowed(self):
+        existing = {"proto": "tcp", "listen": "2083", "listen_ip": "", "target": "10.0.0.5"}
+        rule = {"proto": "tcp", "listen": "2083", "listen_ip": "203.0.113.5", "target": "10.0.0.6"}
+        self.assertIsNone(forward.find_duplicate([existing], rule))
+
+
 def base(**overrides):
     data = {"hop": {"enabled": False, "proto": "udp", "range": "20000-40000", "target": "172.28.60.12:8443"}, "rules": []}
     data.update(overrides)
