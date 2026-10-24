@@ -3,7 +3,7 @@ PY ?= python3
 COMPOSE ?= docker compose
 ROOT := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 
-.PHONY: help init render up down restart logs ps test doctor panel forward forward-apply cert backup shell console-logs clean
+.PHONY: help init render up down restart logs ps test doctor panel forward forward-apply cert backup shell console-logs uninstall clean
 
 help:
 	@echo "make init         create the channel inventory"
@@ -19,6 +19,7 @@ help:
 	@echo "make cert DOMAIN=x issue/renew a certificate for hysteria2"
 	@echo "make backup       archive state into backups/"
 	@echo "make console-logs follow the web console logs"
+	@echo "make uninstall    remove containers, firewall rules and the systemd unit"
 	@echo "make shell        shell inside the gateway container"
 
 init:
@@ -71,6 +72,9 @@ shell:
 
 console-logs:
 	$(COMPOSE) logs -f --tail=100 console
+
+uninstall:
+	@if [ "$$(id -u)" = "0" ]; then bash scripts/uninstall.sh; else sudo bash scripts/uninstall.sh; fi
 
 clean:
 	rm -f config/xray/config.json config/sing-box/config.json config/nftables/outlander.nft

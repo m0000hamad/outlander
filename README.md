@@ -52,6 +52,17 @@ make test | make doctor | make backup | make panel
 | TUIC | 8444/udp |
 | Gateway SOCKS (localhost only) | 10808 |
 
+## Removing
+
+```bash
+sudo bash scripts/uninstall.sh                # containers, network, systemd unit, firewall, cron
+sudo bash scripts/uninstall.sh --purge-data   # + secrets, panel database, certificates, backups
+sudo bash scripts/uninstall.sh --purge-data --remove-dir --yes   # delete the checkout too
+```
+
+Runtime state is always removed; `.env`, `config/`, `data/`, `certs/` and `backups/` are kept
+unless you pass `--purge-data`. Docker itself is never touched.
+
 ## Docs
 
 - [docs/CONSOLE.md](docs/CONSOLE.md) - the web UI

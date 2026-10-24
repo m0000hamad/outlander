@@ -175,6 +175,25 @@ make console-logs
 
 ---
 
+## ۹) حذف کامل
+
+```bash
+sudo bash scripts/uninstall.sh                  # فقط runtime: کانتینرها، شبکه، یونیت، فایروال، کران
+sudo bash scripts/uninstall.sh --purge-data     # + رمزها، دیتابیس پنل، سرتیفیکیت‌ها، بکاپ‌ها
+sudo bash scripts/uninstall.sh --purge-data --remove-dir --yes   # حذف کامل پوشه، بدون سؤال
+```
+
+چه چیزی همیشه پاک می‌شود:
+
+- کانتینرهای `ol-gateway` / `ol-panel` / `ol-console` / `ol-singbox` / `ol-haproxy` و شبکهٔ `ol-core`
+- یونیت `outlander-forward.service`
+- جدول‌های nftables `outlander` و `outlander_cdn` و قوانین `DOCKER-USER` مربوط به فوروارد
+- قوانین ufw که نصب‌کننده اضافه کرده و خط کران certbot
+
+پیش‌فرض: `.env`، `config/`، `data/`، `certs/` و `backups/` **حفظ** می‌شوند تا بتوانید دوباره نصب کنید. Docker خودش حذف نمی‌شود. گزینه‌های دیگر: `--purge-images` برای پاک کردن ایمیج ساخته‌شدهٔ کنسول و `--yes` برای اجرای بدون تأیید.
+
+---
+
 ## ساختار
 
 ```
@@ -182,7 +201,7 @@ outlander/
 ├── outlander/            # CLI و رندر کانفیگ (بدون وابستگی)
 ├── console/              # کنسول وب (Python stdlib + Dockerfile)
 ├── config/               # inventory، کانفیگ‌های رندرشده، haproxy، nftables
-├── scripts/              # install, cert, firewall, backup, forward
+├── scripts/              # install, uninstall, cert, firewall, backup, forward
 ├── tests/
 └── docs/
 ```

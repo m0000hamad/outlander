@@ -110,3 +110,18 @@ The gateway SOCKS port is published on `127.0.0.1` only by default; uncomment th
 - SSH key-only, root login disabled, `ufw` enabled.
 - Upstream links are secrets: keep `config/inventory.json` out of git, rotate UUIDs when a device is
   lost.
+
+## Removing Outlander
+
+```bash
+sudo bash scripts/uninstall.sh                  # containers, network, systemd unit, nftables, ufw, cron
+sudo bash scripts/uninstall.sh --purge-data     # + .env, inventory, panel db, certs, backups
+sudo bash scripts/uninstall.sh --purge-data --remove-dir --yes
+```
+
+The script always removes: the five project containers, the `ol-core` network, the
+`outlander-forward.service` unit, the `outlander` / `outlander_cdn` nftables tables, the
+`DOCKER-USER` accepts it added for forwarding, the ufw rules from `install.sh` and the certbot
+cron line. Data, secrets and the checkout itself are opt-in so a reinstall is possible.
+
+`make uninstall` runs it with the default (keep data) behaviour.
