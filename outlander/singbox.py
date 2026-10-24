@@ -68,12 +68,13 @@ def _transport(link: Link) -> dict | None:
     )
 
 
-def singbox_outbound(link: Link, tag: str) -> dict:
+def singbox_outbound(link: Link, tag: str, resolve: str = "") -> dict:
+    server = resolve or link.address
     if link.scheme == "hysteria2":
         outbound: dict = {
             "type": "hysteria2",
             "tag": tag,
-            "server": link.address,
+            "server": server,
             "server_port": link.port,
             "password": link.password,
             "tls": _tls(link),
@@ -95,7 +96,7 @@ def singbox_outbound(link: Link, tag: str) -> dict:
         return {
             "type": "tuic",
             "tag": tag,
-            "server": link.address,
+            "server": server,
             "server_port": link.port,
             "uuid": link.uuid,
             "password": link.password,
@@ -108,7 +109,7 @@ def singbox_outbound(link: Link, tag: str) -> dict:
         outbound = {
             "type": "vless",
             "tag": tag,
-            "server": link.address,
+            "server": server,
             "server_port": link.port,
             "uuid": link.uuid,
             "packet_encoding": "xudp",
@@ -122,7 +123,7 @@ def singbox_outbound(link: Link, tag: str) -> dict:
         outbound = {
             "type": "trojan",
             "tag": tag,
-            "server": link.address,
+            "server": server,
             "server_port": link.port,
             "password": link.password,
         }
@@ -135,7 +136,7 @@ def singbox_outbound(link: Link, tag: str) -> dict:
         outbound = {
             "type": "vmess",
             "tag": tag,
-            "server": link.address,
+            "server": server,
             "server_port": link.port,
             "uuid": link.uuid,
             "alter_id": int(link.params.get("aid") or 0),

@@ -104,7 +104,7 @@ def add_channel(
 ) -> dict:
     link = parse(link_raw)
     if needs_bridge(link):
-        singbox_outbound(link, "validate")
+        singbox_outbound(link, "validate", resolve)
     name = tag or (link.name or link.address)
     if find(inventory, name):
         raise LinkError(f"channel '{name}' already exists")
@@ -277,7 +277,7 @@ def singbox_config(inventory: dict, env: dict | None = None) -> dict:
         tag = outbound_tag(channel)
         port = SINGBOX_SOCKS_BASE + socks_index
         socks_index += 1
-        outbounds.append(singbox_outbound(link, tag))
+        outbounds.append(singbox_outbound(link, tag, channel.get("resolve") or ""))
         inbounds.append(socks_inbound(f"{tag}-in", port, SOCKS_USER, secret[:24]))
         rules.append({"inbound": [f"{tag}-in"], "outbound": tag})
 

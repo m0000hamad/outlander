@@ -185,6 +185,15 @@ class RenderTests(unittest.TestCase):
         singbox = render.singbox_config(inventory, {})
         self.assertEqual(singbox["outbounds"][0]["type"], "trojan")
 
+    def test_resolve_pins_the_bridge_server(self):
+        inventory = self.inventory()
+        inventory["channels"][0]["resolve"] = "185.143.235.136"
+        singbox = render.singbox_config(inventory, {})
+        outbound = next(item for item in singbox["outbounds"] if item["tag"] == "ol-cdn-cdn2")
+        self.assertEqual(outbound["server"], "185.143.235.136")
+        gateway = render.gateway_config(inventory, {})
+        self.assertEqual(gateway["dns"]["hosts"]["domain:abr02.example.ir"], "185.143.235.136")
+
     def test_unbridgeable_transport_is_rejected_early(self):
         inventory = self.inventory()
         with self.assertRaises(Exception):
