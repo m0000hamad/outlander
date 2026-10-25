@@ -144,6 +144,22 @@ def csrf_input(token: str) -> str:
     return f'<input type="hidden" name="_csrf" value="{esc(token)}">'
 
 
+def _mode_label(rule: dict, lang: str) -> str:
+    mode = rule.get("mode") or "nft"
+    resolved = str(rule.get("resolved") or "")
+    error = str(rule.get("last_error") or "")
+    if mode == "auto":
+        if resolved == "nft":
+            label = t(lang, "fw.mode_nft")
+        elif resolved == "dokodemo":
+            label = t(lang, "fw.mode_dokodemo")
+        else:
+            label = t(lang, "fw.pending")
+    else:
+        label = t(lang, f"fw.mode_{mode}")
+    return f"{label} · {error}" if error else label
+
+
 def dashboard(ctx: dict) -> str:
     lang = normalise(ctx.get("lang", "fa"))
     states = ctx["states"]
@@ -372,9 +388,14 @@ def forwarding(ctx: dict) -> str:
         '<div class="row" style="margin-bottom:10px">'
         f'<div class="field"><label>{esc(t(lang, "common.protocol"))}</label><select name="proto">'
         '<option value="tcp">tcp</option><option value="udp">udp</option><option value="both">both</option></select></div>'
+        f'<div class="field"><label>{esc(t(lang, "fw.mode"))}</label><select name="mode">'
+        f'<option value="auto">{esc(t(lang, "fw.mode_auto"))}</option>'
+        f'<option value="nft">{esc(t(lang, "fw.mode_nft"))}</option>'
+        f'<option value="dokodemo">{esc(t(lang, "fw.mode_dokodemo"))}</option></select></div>'
         f'<div class="field"><label>{esc(t(lang, "common.listen_ip"))}</label><input name="listen_ip" placeholder="203.0.113.5" class="mono"></div>'
         f'<div class="field"><label>{esc(t(lang, "fw.listen_port"))}</label><input name="listen" placeholder="443 / 50000-50100 / *" class="mono" required></div>'
         f'<div class="field"><label>{esc(t(lang, "common.target"))}</label><input name="target" placeholder="10.0.0.5:443" class="mono" required></div></div>'
+        f'<p class="tiny muted" style="margin:-2px 0 10px">{esc(t(lang, "fw.auto_note"))}</p>'
         f'<button class="btn" type="submit">{esc(t(lang, "fw.add_apply"))}</button></form></div>'
     )
 
@@ -384,6 +405,7 @@ def forwarding(ctx: dict) -> str:
             rows.append(
                 "<tr>"
                 f'<td>{esc(rule.get("proto", "tcp"))}</td>'
+                f'<td class="tiny">{esc(_mode_label(rule, lang))}</td>'
                 f'<td class="mono tiny">{esc(rule.get("listen_ip") or t(lang, "common.all"))}</td>'
                 f'<td class="mono tiny">{esc(rule.get("listen"))}</td>'
                 f'<td class="mono tiny">{esc(rule.get("target"))}</td>'
@@ -394,7 +416,7 @@ def forwarding(ctx: dict) -> str:
             )
         table = (
             f'<div class="card" style="margin-top:14px"><h2>{esc(t(lang, "fw.table_title"))}</h2>'
-            f"<table><thead><tr><th>{esc(t(lang, 'common.protocol'))}</th><th>{esc(t(lang, 'fw.col_ip'))}</th>"
+            f"<table><thead><tr><th>{esc(t(lang, 'common.protocol'))}</th><th>{esc(t(lang, 'fw.col_mode'))}</th><th>{esc(t(lang, 'fw.col_ip'))}</th>"
             f"<th>{esc(t(lang, 'fw.col_port'))}</th><th>{esc(t(lang, 'fw.col_target'))}</th><th></th></tr></thead>"
             f'<tbody>{"".join(rows)}</tbody></table>'
             '<div class="row" style="margin-top:12px">'

@@ -28,6 +28,7 @@ PORT_RE = re.compile(r"^\d{1,5}(-\d{1,5})?$")
 IP_RE = re.compile(r"^[0-9a-fA-F:.]{2,45}$")
 TARGET_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.\-]{0,252}(:\d{1,5})?$")
 PROTOS = {"tcp", "udp", "both"}
+MODES = {"auto", "nft", "dokodemo"}
 
 
 def load(root: Path) -> dict:
@@ -106,6 +107,9 @@ def normalise_rule(rule: dict) -> dict:
     proto = (rule.get("proto") or "tcp").strip().lower()
     if proto not in PROTOS:
         raise ValueError("proto must be tcp, udp or both")
+    mode = (rule.get("mode") or "nft").strip().lower()
+    if mode not in MODES:
+        raise ValueError("mode must be auto, nft or dokodemo")
     listen = str(rule.get("listen") if rule.get("listen") is not None else rule.get("listen_port") or "").strip()
     if listen != "*" and not PORT_RE.match(listen):
         raise ValueError("listen must be a port, a range like 50000-50100, or *")
@@ -123,7 +127,32 @@ def normalise_rule(rule: dict) -> dict:
     target = _target(rule.get("target") or "")
     if listen == "*" and ":" in target:
         raise ValueError("forwarding every port cannot change the port; drop the target port")
-    return {"proto": proto, "listen": listen, "listen_ip": listen_ip, "target": target}
+    if mode == "dokodemo":
+        if listen_ip:
+            raise ValueError("dokodemo listens on all addresses; drop listen_ip")
+        if not listen.isdigit():
+            raise ValueError("dokodemo needs a single listen port, not a range")
+        if ":" not in target:
+            raise ValueError("dokodemo needs a target with a port")
+    return {
+        "proto": proto,
+        "listen": listen,
+        "listen_ip": listen_ip,
+        "target": target,
+        "mode": mode,
+        "resolved": str(rule.get("resolved") or ""),
+        "inbound_id": rule.get("inbound_id") or None,
+        "last_error": str(rule.get("last_error") or ""),
+        "checked_at": str(rule.get("checked_at") or ""),
+    }
+
+
+def effective_mode(rule: dict) -> str:
+    """Path a rule is actually using right now (empty while auto is undecided)."""
+    mode = rule.get("mode") or "nft"
+    if mode == "auto":
+        return str(rule.get("resolved") or "")
+    return mode
 
 
 def _allow_command(host: str, port: str, proto: str) -> str:
@@ -252,6 +281,8 @@ def nft_text(data: dict) -> str:
         )
     for raw in data.get("rules", []):
         rule = normalise_rule(raw)
+        if effective_mode(rule) != "nft":
+            continue
         protos = ["tcp", "udp"] if rule["proto"] == "both" else [rule["proto"]]
         for proto in protos:
             parts: list[str] = []
@@ -291,6 +322,8 @@ def docker_allows(data: dict) -> list[str]:
             commands.append(_allow_command(host, port, hop.get("proto", "udp")))
     for raw in data.get("rules", []):
         rule = normalise_rule(raw)
+        if effective_mode(rule) != "nft":
+            continue
         host, _, port = resolve_target(rule["target"]).partition(":")
         if not host.startswith("172.28.60."):
             continue

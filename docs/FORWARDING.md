@@ -63,6 +63,31 @@ Removing a rule:
 python3 -m outlander forward render && sudo bash scripts/forward-apply.sh
 ```
 
+## Modes: direct, tunnel, auto
+
+Every rule carries a `mode`:
+
+| mode | what runs | when to use |
+|---|---|---|
+| `nft` | nftables DNAT (default) | fastest, kernel level, any TCP/UDP, no protocol involved |
+| `dokodemo` | Xray `dokodemo-door` inbound in the panel | the target is not reachable from the server directly; traffic leaves through the gateway and the CDN chain |
+| `auto` | whichever probe succeeds | let the console decide and keep deciding |
+
+`auto` probes the target twice: a direct TCP connection from the host, then a SOCKS5 `CONNECT`
+through the gateway (`127.0.0.1:10808`). Direct wins (`nft`), otherwise the tunnel is used
+(`dokodemo`). A worker re-checks every `AUTO_INTERVAL` seconds (default 300) and switches the rule
+when the path changes; `AUTO_FORWARDS=0` disables it. The rules table shows the current path and the
+last error.
+
+Dokodemo rules are never written to nftables: the panel listens on the port and its catch-all
+routing rule sends the connection to `ol-gateway`, which balances over the upstream channels and
+fails over between them. That is how a blocked destination is reached from the CDN exit. Deleting
+such a rule also deletes its inbound.
+
+Limits: only a single port can be dokodemo (ranges and `*` always resolve to `nft`), and `listen_ip`
+is nft-only. UDP over a WS-based upstream depends on that transport's UDP support, so prefer TCP for
+tunnel mode.
+
 ## Forwarding to a public host
 
 The target may be an IP or a hostname (`s3.example.com:2083`). At render time the hostname is

@@ -164,6 +164,34 @@ def ws_tls_inbound(
     }
 
 
+def dokodemo_inbound(port: int, remark: str, host: str, target_port: int, proto: str = "tcp") -> dict:
+    """Xray dokodemo-door: raw TCP/UDP relay that the panel routes through the gateway."""
+    network = "tcp,udp" if proto == "both" else ("udp" if proto == "udp" else "tcp")
+    return {
+        "enable": True,
+        "remark": remark,
+        "listen": "",
+        "port": int(port),
+        "protocol": "dokodemo-door",
+        "expiryTime": 0,
+        "total": 0,
+        "settings": {
+            "address": host,
+            "port": int(target_port),
+            "network": network,
+            "followRedirect": False,
+            "timeout": 0,
+        },
+        "streamSettings": {
+            "network": "tcp",
+            "security": "none",
+            "externalProxy": [],
+            "tcpSettings": {"acceptProxyProtocol": False, "header": {"type": "none"}},
+        },
+        "sniffing": {"enabled": False, "destOverride": [], "metadataOnly": False, "routeOnly": False},
+    }
+
+
 def ws_link(host: str, port: int, uuid: str, path: str = DEFAULT_WS_PATH, remark: str = "") -> str:
     fragment = quote(remark) if remark else ""
     return (

@@ -415,6 +415,7 @@ class Handler(BaseHTTPRequestHandler):
             form.get("listen_ip", ""),
             form.get("listen", ""),
             form.get("target", ""),
+            form.get("mode", "nft"),
         )
         ops.render_all()
         ok, detail = ops.apply_forwarding()
@@ -539,6 +540,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> int:
     password()
+    ops.start_auto_worker()
     server = ThreadingHTTPServer((BIND, PORT), Handler)
     server.daemon_threads = True
     print(f"[console] listening on http://{BIND}:{PORT} user={USER}", flush=True)

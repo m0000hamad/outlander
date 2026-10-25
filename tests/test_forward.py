@@ -124,7 +124,34 @@ class ResolveTargetTests(unittest.TestCase):
 class RuleValidationTests(unittest.TestCase):
     def test_simple_port(self):
         rule = forward.normalise_rule({"proto": "tcp", "listen": "3389", "target": "10.0.0.5:3389"})
-        self.assertEqual(rule, {"proto": "tcp", "listen": "3389", "listen_ip": "", "target": "10.0.0.5:3389"})
+        self.assertEqual(rule["proto"], "tcp")
+        self.assertEqual(rule["listen"], "3389")
+        self.assertEqual(rule["listen_ip"], "")
+        self.assertEqual(rule["target"], "10.0.0.5:3389")
+        self.assertEqual(rule["mode"], "nft")
+        self.assertEqual(rule["resolved"], "")
+
+    def test_dokodemo_needs_single_port_and_target_port(self):
+        rule = forward.normalise_rule(
+            {"proto": "tcp", "listen": "2083", "target": "10.0.0.5:443", "mode": "dokodemo"}
+        )
+        self.assertEqual(rule["mode"], "dokodemo")
+        with self.assertRaises(ValueError):
+            forward.normalise_rule({"proto": "tcp", "listen": "2083-2090", "target": "10.0.0.5:443", "mode": "dokodemo"})
+        with self.assertRaises(ValueError):
+            forward.normalise_rule({"proto": "tcp", "listen": "2083", "target": "10.0.0.5", "mode": "dokodemo"})
+        with self.assertRaises(ValueError):
+            forward.normalise_rule(
+                {"proto": "tcp", "listen": "2083", "target": "10.0.0.5:443", "mode": "dokodemo", "listen_ip": "1.2.3.4"}
+            )
+
+    def test_auto_rule_is_not_rendered_until_resolved(self):
+        auto = {"proto": "tcp", "listen": "2083", "target": "10.0.0.5:443", "mode": "auto"}
+        self.assertNotIn("2083", forward.nft_text(base(rules=[auto])))
+        auto["resolved"] = "dokodemo"
+        self.assertNotIn("2083", forward.nft_text(base(rules=[auto])))
+        auto["resolved"] = "nft"
+        self.assertIn("tcp dport 2083 dnat ip to 10.0.0.5:443", forward.nft_text(base(rules=[auto])))
 
     def test_range_and_ip(self):
         rule = forward.normalise_rule(

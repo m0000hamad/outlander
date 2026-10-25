@@ -9,6 +9,7 @@ import secrets
 import shutil
 import socket
 import subprocess
+import threading
 import sys
 import time
 from pathlib import Path
@@ -17,7 +18,7 @@ ROOT = Path(os.environ.get("OUTLANDER_ROOT", "/repo")).resolve()
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from outlander import certs, forward, inbounds, panel, render  # noqa: E402
+from outlander import certs, forward, inbounds, panel, probe, render  # noqa: E402
 from outlander.uri import LinkError, parse  # noqa: E402
 
 DOCKER_SOCK = os.environ.get("DOCKER_SOCK", "/var/run/docker.sock")
@@ -219,11 +220,55 @@ def toggle_channel(tag: str) -> bool | None:
     return bool(channel["enabled"])
 
 
-def add_forward(proto: str, listen_ip: str, listen: str, target: str) -> str:
+def _now() -> str:
+    return time.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _gateway() -> tuple[str, int]:
+    env = render.read_env(ROOT)
+    return ("127.0.0.1", int(env.get("GATEWAY_SOCKS_PORT", "10808")))
+
+
+def _decide(rule: dict) -> tuple[str, str]:
+    """Pick the path for an auto rule: nft when direct works, dokodemo via the chain."""
+    host, _, port = rule["target"].partition(":")
+    if not port.isdigit():
+        return "", "target needs a port"
+    try:
+        address = forward.resolve_target(rule["target"]).partition(":")[0]
+    except ValueError as exc:
+        return "", str(exc)
+    if probe.tcp_reachable(address, int(port), 3):
+        return "nft", ""
+    proxy_host, proxy_port = _gateway()
+    if probe.socks5_reachable(proxy_host, proxy_port, address, int(port), 6):
+        return "dokodemo", ""
+    return "", "direct and tunnel both failed"
+
+
+def _ensure_dokodemo(rule: dict) -> int:
+    host, _, port = rule["target"].partition(":")
+    client = panel_client()
+    try:
+        created = client.add_inbound(
+            inbounds.dokodemo_inbound(
+                int(rule["listen"]),
+                f"fwd-{rule['listen']}",
+                host,
+                int(port),
+                rule["proto"],
+            )
+        )
+    except panel.PanelError as exc:
+        raise OpError("err.proxy_create", detail=str(exc)) from exc
+    return int(created.get("id") or 0)
+
+
+def add_forward(proto: str, listen_ip: str, listen: str, target: str, mode: str = "nft") -> str:
     data = forward.load(ROOT)
     try:
         rule = forward.normalise_rule(
-            {"proto": proto, "listen_ip": listen_ip, "listen": listen, "target": target}
+            {"proto": proto, "listen_ip": listen_ip, "listen": listen, "target": target, "mode": mode}
         )
     except ValueError as exc:
         raise OpError("err.invalid_rule", detail=str(exc)) from exc
@@ -237,18 +282,108 @@ def add_forward(proto: str, listen_ip: str, listen: str, target: str) -> str:
     for existing in data["rules"]:
         if forward.same_listener(existing, rule):
             raise OpError("err.forward_duplicate", listen=rule["listen"])
+
+    if rule["mode"] == "nft":
+        rule["resolved"] = "nft"
+    elif not rule["listen"].isdigit():
+        rule["resolved"] = "nft"
+    elif rule["mode"] == "auto":
+        decision, detail = _decide(rule)
+        rule["checked_at"] = _now()
+        rule["last_error"] = "" if decision else detail
+        rule["resolved"] = decision
+        if decision == "dokodemo":
+            rule["inbound_id"] = _ensure_dokodemo(rule)
+    else:
+        rule["resolved"] = "dokodemo"
+        rule["inbound_id"] = _ensure_dokodemo(rule)
+
     data["rules"].append(rule)
     forward.save(ROOT, data)
-    return f"{rule['proto']}/{rule['listen']} -> {rule['target']}"
+    path = rule["resolved"] or "pending"
+    return f"{rule['proto']}/{rule['listen']} -> {rule['target']} [{path}]"
 
 
 def remove_forward(index: int) -> bool:
     data = forward.load(ROOT)
     if not 0 <= index < len(data["rules"]):
         return False
-    data["rules"].pop(index)
+    rule = data["rules"].pop(index)
+    if rule.get("inbound_id"):
+        try:
+            panel_client().delete_inbound(int(rule["inbound_id"]))
+        except Exception:  # noqa: BLE001 - the inbound may be gone already
+            pass
     forward.save(ROOT, data)
     return True
+
+
+def reconcile_forwards() -> str:
+    """Re-evaluate auto rules and switch direct <-> tunnel when the path changes."""
+    data = forward.load(ROOT)
+    dirty = False
+    nft_changed = False
+    messages: list[str] = []
+
+    for rule in data.get("rules", []):
+        if (rule.get("mode") or "nft") != "auto" or not str(rule.get("listen", "")).isdigit():
+            continue
+        decision, detail = _decide(rule)
+        rule["checked_at"] = _now()
+        rule["last_error"] = "" if decision else detail
+        dirty = True
+        if not decision or decision == rule.get("resolved"):
+            continue
+
+        if decision == "nft":
+            if rule.get("inbound_id"):
+                try:
+                    panel_client().delete_inbound(int(rule["inbound_id"]))
+                except Exception as exc:  # noqa: BLE001
+                    rule["last_error"] = f"delete inbound: {exc}"
+                    continue
+                rule["inbound_id"] = None
+            rule["resolved"] = "nft"
+            nft_changed = True
+            messages.append(f"{rule['listen']} → direct")
+        else:
+            try:
+                rule["inbound_id"] = _ensure_dokodemo(rule)
+            except OpError as exc:
+                rule["last_error"] = exc.code
+                continue
+            rule["resolved"] = "dokodemo"
+            nft_changed = True
+            messages.append(f"{rule['listen']} → tunnel")
+
+    if dirty:
+        forward.save(ROOT, data)
+    if nft_changed:
+        forward.render(ROOT)
+        apply_forwarding()
+    return ", ".join(messages)
+
+
+def start_auto_worker() -> None:
+    if (os.environ.get("AUTO_FORWARDS", "1") or "").strip().lower() in {"0", "false", "off", "no"}:
+        return
+    try:
+        interval = max(60, int(os.environ.get("AUTO_INTERVAL", "300")))
+    except ValueError:
+        interval = 300
+    threading.Thread(target=_auto_loop, args=(interval,), name="auto-forward", daemon=True).start()
+
+
+def _auto_loop(interval: int) -> None:
+    time.sleep(20)
+    while True:
+        try:
+            summary = reconcile_forwards()
+            if summary:
+                remember("auto", summary)
+        except Exception:  # noqa: BLE001 - a probe must never kill the worker
+            pass
+        time.sleep(interval)
 
 
 def save_hop(enabled: bool, proto: str, port_range: str, target: str) -> None:
