@@ -422,9 +422,12 @@ class Handler(BaseHTTPRequestHandler):
         if not ok:
             ops.remember("apply", f"forward {summary} saved, apply failed: {detail}")
             return "/forwarding", self._tr("flash.forward_add_failed", error=detail), "err"
+        tunnel_ok, tunnel_detail = ops.apply_tunnel()
         message = self._tr("flash.forward_added", summary=summary)
+        if not tunnel_ok:
+            message += f" ({tunnel_detail})"
         ops.remember("apply", message)
-        return "/forwarding", message, "ok"
+        return "/forwarding", message, "ok" if tunnel_ok else "err"
 
     def _forwarding_delete(self, form: dict[str, str]) -> tuple[str, str, str]:
         try:
@@ -437,9 +440,12 @@ class Handler(BaseHTTPRequestHandler):
         ok, detail = ops.apply_forwarding()
         if not ok:
             return "/forwarding", self._tr("flash.forward_remove_failed", error=detail), "err"
+        tunnel_ok, tunnel_detail = ops.apply_tunnel()
         message = self._tr("flash.forward_removed")
+        if not tunnel_ok:
+            message += f" ({tunnel_detail})"
         ops.remember("apply", message)
-        return "/forwarding", message, "ok"
+        return "/forwarding", message, "ok" if tunnel_ok else "err"
 
     def _forwarding_hop(self, form: dict[str, str]) -> tuple[str, str, str]:
         ops.save_hop(

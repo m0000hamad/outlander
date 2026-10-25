@@ -320,7 +320,16 @@ def render(root: Path, env: dict | None = None) -> dict[str, Path]:
     singbox_payload = singbox_config(inventory, env)
     singbox_path.write_text(json.dumps(singbox_payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
-    return {"inventory": root / INVENTORY, "gateway": gateway_path, "singbox": singbox_path}
+    from . import tunnel
+
+    tunnel_path = tunnel.render(root, env)
+
+    return {
+        "inventory": root / INVENTORY,
+        "gateway": gateway_path,
+        "singbox": singbox_path,
+        "tunnel": tunnel_path,
+    }
 
 
 def panel_fragments(inventory: dict, env: dict | None = None) -> tuple[dict, dict]:

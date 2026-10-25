@@ -40,6 +40,18 @@ services:
       ol-core:
         ipv4_address: 172.28.60.10
 
+  tunnel:
+    image: ghcr.io/xtls/xray-core:latest
+    container_name: ol-tunnel
+    restart: unless-stopped
+    network_mode: host
+    command: ["run", "-c", "/etc/xray/tunnel.json"]
+    volumes:
+      - ./config/xray:/etc/xray:ro
+    depends_on:
+      - gateway
+    logging: *logging
+
   panel:
     image: ghcr.io/mhsanaei/3x-ui:latest
     container_name: ol-panel

@@ -18,7 +18,7 @@ ROOT = Path(os.environ.get("OUTLANDER_ROOT", "/repo")).resolve()
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from outlander import certs, forward, inbounds, panel, probe, render  # noqa: E402
+from outlander import certs, forward, inbounds, panel, probe, render, tunnel  # noqa: E402
 from outlander.uri import LinkError, parse  # noqa: E402
 
 DOCKER_SOCK = os.environ.get("DOCKER_SOCK", "/var/run/docker.sock")
@@ -30,6 +30,7 @@ SERVICES = {
     "gateway": "ol-gateway",
     "panel": "ol-panel",
     "singbox": "ol-singbox",
+    "tunnel": "ol-tunnel",
     "console": "ol-console",
 }
 
@@ -246,22 +247,26 @@ def _decide(rule: dict) -> tuple[str, str]:
     return "", "direct and tunnel both failed"
 
 
-def _ensure_dokodemo(rule: dict) -> int:
-    host, _, port = rule["target"].partition(":")
-    client = panel_client()
+def apply_tunnel() -> tuple[bool, str]:
+    """Render the dokodemo config and restart ol-tunnel (host network)."""
     try:
-        created = client.add_inbound(
-            inbounds.dokodemo_inbound(
-                int(rule["listen"]),
-                f"fwd-{rule['listen']}",
-                host,
-                int(port),
-                rule["proto"],
-            )
-        )
-    except panel.PanelError as exc:
-        raise OpError("err.proxy_create", detail=str(exc)) from exc
-    return int(created.get("id") or 0)
+        tunnel.render(ROOT, render.read_env(ROOT))
+    except Exception as exc:  # noqa: BLE001
+        return False, str(exc)
+    has_dokodemo = any(
+        forward.effective_mode(forward.normalise_rule(raw)) == "dokodemo"
+        for raw in forward.load(ROOT).get("rules", [])
+    )
+    state = container_state("tunnel").get("state")
+    if state in {"missing", "unknown"}:
+        if has_dokodemo:
+            return False, "tunnel container is not running (run docker compose up -d)"
+        return True, ""
+    try:
+        container_action("tunnel", "restart")
+    except Exception as exc:  # noqa: BLE001
+        return False, str(exc)
+    return True, "tunnel reloaded"
 
 
 def add_forward(proto: str, listen_ip: str, listen: str, target: str, mode: str = "nft") -> str:
@@ -283,20 +288,15 @@ def add_forward(proto: str, listen_ip: str, listen: str, target: str, mode: str 
         if forward.same_listener(existing, rule):
             raise OpError("err.forward_duplicate", listen=rule["listen"])
 
-    if rule["mode"] == "nft":
-        rule["resolved"] = "nft"
-    elif not rule["listen"].isdigit():
+    if rule["mode"] == "nft" or not rule["listen"].isdigit():
         rule["resolved"] = "nft"
     elif rule["mode"] == "auto":
         decision, detail = _decide(rule)
         rule["checked_at"] = _now()
         rule["last_error"] = "" if decision else detail
         rule["resolved"] = decision
-        if decision == "dokodemo":
-            rule["inbound_id"] = _ensure_dokodemo(rule)
     else:
         rule["resolved"] = "dokodemo"
-        rule["inbound_id"] = _ensure_dokodemo(rule)
 
     data["rules"].append(rule)
     forward.save(ROOT, data)
@@ -308,12 +308,7 @@ def remove_forward(index: int) -> bool:
     data = forward.load(ROOT)
     if not 0 <= index < len(data["rules"]):
         return False
-    rule = data["rules"].pop(index)
-    if rule.get("inbound_id"):
-        try:
-            panel_client().delete_inbound(int(rule["inbound_id"]))
-        except Exception:  # noqa: BLE001 - the inbound may be gone already
-            pass
+    data["rules"].pop(index)
     forward.save(ROOT, data)
     return True
 
@@ -323,6 +318,7 @@ def reconcile_forwards() -> str:
     data = forward.load(ROOT)
     dirty = False
     nft_changed = False
+    tunnel_changed = False
     messages: list[str] = []
 
     for rule in data.get("rules", []):
@@ -335,32 +331,20 @@ def reconcile_forwards() -> str:
         if not decision or decision == rule.get("resolved"):
             continue
 
+        rule["resolved"] = decision
         if decision == "nft":
-            if rule.get("inbound_id"):
-                try:
-                    panel_client().delete_inbound(int(rule["inbound_id"]))
-                except Exception as exc:  # noqa: BLE001
-                    rule["last_error"] = f"delete inbound: {exc}"
-                    continue
-                rule["inbound_id"] = None
-            rule["resolved"] = "nft"
             nft_changed = True
-            messages.append(f"{rule['listen']} → direct")
+            messages.append(f"{rule['listen']} -> direct")
         else:
-            try:
-                rule["inbound_id"] = _ensure_dokodemo(rule)
-            except OpError as exc:
-                rule["last_error"] = exc.code
-                continue
-            rule["resolved"] = "dokodemo"
-            nft_changed = True
-            messages.append(f"{rule['listen']} → tunnel")
+            tunnel_changed = True
+            messages.append(f"{rule['listen']} -> tunnel")
 
     if dirty:
         forward.save(ROOT, data)
-    if nft_changed:
+    if nft_changed or tunnel_changed:
         forward.render(ROOT)
         apply_forwarding()
+        apply_tunnel()
     return ", ".join(messages)
 
 
