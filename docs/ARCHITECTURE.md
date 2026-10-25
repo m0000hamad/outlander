@@ -27,6 +27,10 @@
 
 `ol-console` is the control plane: a tiny web UI with the docker socket mounted, host networking and `NET_ADMIN`. It edits `config/inventory.json` / `config/forwarding.json`, re-renders, restarts the gateway and reloads nftables. It sits outside the data path, so a console restart never drops traffic.
 
+`ol-tunnel` serves the dokodemo-door forwards: one inbound per tunnel rule, its only outbound is the
+gateway SOCKS port, and its config is rendered from `config/forwarding.json`. It runs on the host
+network so it can bind any port without touching Docker port mappings.
+
 `ol-singbox` also serves *inbound* Hysteria2/TUIC for clients and sends their egress back to
 `ol-gateway` (`route.final = gw`). One routing plane, two protocol families.
 

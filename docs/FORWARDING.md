@@ -70,7 +70,7 @@ Every rule carries a `mode`:
 | mode | what runs | when to use |
 |---|---|---|
 | `nft` | nftables DNAT (default) | fastest, kernel level, any TCP/UDP, no protocol involved |
-| `dokodemo` | Xray `dokodemo-door` inbound in the panel | the target is not reachable from the server directly; traffic leaves through the gateway and the CDN chain |
+| `dokodemo` | Xray `dokodemo-door` inbound in `ol-tunnel` | the target is not reachable from the server directly; traffic leaves through the gateway and the CDN chain |
 | `auto` | whichever probe succeeds | let the console decide and keep deciding |
 
 `auto` probes the target twice: a direct TCP connection from the host, then a SOCKS5 `CONNECT`
@@ -79,10 +79,12 @@ through the gateway (`127.0.0.1:10808`). Direct wins (`nft`), otherwise the tunn
 when the path changes; `AUTO_FORWARDS=0` disables it. The rules table shows the current path and the
 last error.
 
-Dokodemo rules are never written to nftables: the panel listens on the port and its catch-all
-routing rule sends the connection to `ol-gateway`, which balances over the upstream channels and
-fails over between them. That is how a blocked destination is reached from the CDN exit. Deleting
-such a rule also deletes its inbound.
+Dokodemo rules are never written to nftables: they are served by `ol-tunnel`, a small host-network
+Xray container whose config (`config/xray/tunnel.json`) is rendered from `forwarding.json` with one
+`dokodemo-door` inbound per rule. Its only outbound is the gateway SOCKS port, so traffic exits over
+the CDN chain and the panel is not involved. Deleting a rule rewrites that config and restarts the
+container. A domain target is passed through unresolved, which matters because Iranian DNS answers
+blocked names with private addresses - the far end of the chain resolves it instead.
 
 Limits: only a single port can be dokodemo (ranges and `*` always resolve to `nft`), and `listen_ip`
 is nft-only. UDP over a WS-based upstream depends on that transport's UDP support, so prefer TCP for
