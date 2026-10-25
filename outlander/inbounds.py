@@ -118,11 +118,65 @@ def reality_link(host: str, port: int, uuid: str, public_key: str, short_id: str
     )
 
 
+def ws_tls_inbound(
+    port: int,
+    remark: str,
+    uuid: str,
+    domain: str,
+    certificate_file: str,
+    key_file: str,
+    path: str = DEFAULT_WS_PATH,
+) -> dict:
+    """VLESS + WS + TLS, with the certificate read from the panel's mount."""
+    return {
+        "enable": True,
+        "remark": remark,
+        "listen": "",
+        "port": int(port),
+        "protocol": "vless",
+        "expiryTime": 0,
+        "total": 0,
+        "settings": {
+            "clients": [_client(uuid, remark)],
+            "decryption": "none",
+            "fallbacks": [],
+        },
+        "streamSettings": {
+            "network": "ws",
+            "security": "tls",
+            "externalProxy": [],
+            "tlsSettings": {
+                "serverName": domain,
+                "alpn": ["http/1.1"],
+                "certificates": [
+                    {"certificateFile": certificate_file, "keyFile": key_file}
+                ],
+            },
+            "wsSettings": {"path": path, "host": domain, "headers": {}},
+            "tcpSettings": {"acceptProxyProtocol": False, "header": {"type": "none"}},
+        },
+        "sniffing": {
+            "enabled": True,
+            "destOverride": ["http", "tls"],
+            "metadataOnly": False,
+            "routeOnly": False,
+        },
+    }
+
+
 def ws_link(host: str, port: int, uuid: str, path: str = DEFAULT_WS_PATH, remark: str = "") -> str:
     fragment = quote(remark) if remark else ""
     return (
         f"vless://{uuid}@{host}:{port}?type=ws&security=none&encryption=none"
         f"&path={quote(path, safe='')}&host={host}#{fragment}"
+    )
+
+
+def ws_tls_link(host: str, port: int, uuid: str, sni: str, path: str = DEFAULT_WS_PATH, remark: str = "") -> str:
+    fragment = quote(remark) if remark else ""
+    return (
+        f"vless://{uuid}@{host}:{port}?type=ws&security=tls&encryption=none"
+        f"&sni={sni}&host={sni}&path={quote(path, safe='')}&fp=chrome#{fragment}"
     )
 
 
@@ -153,4 +207,10 @@ def link_for(inbound: dict, host: str) -> str:
     if (stream.get("network") or "").lower() == "ws" and security in {"none", ""}:
         path = (stream.get("wsSettings") or {}).get("path") or DEFAULT_WS_PATH
         return ws_link(host, port, uuid, path, remark)
+
+    if (stream.get("network") or "").lower() == "ws" and security == "tls":
+        ws = stream.get("wsSettings") or {}
+        path = ws.get("path") or DEFAULT_WS_PATH
+        sni = (stream.get("tlsSettings") or {}).get("serverName") or ws.get("host") or host
+        return ws_tls_link(sni, port, uuid, sni, path, remark)
     return ""

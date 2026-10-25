@@ -209,6 +209,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
         forwarding = ops.forwarding()
         env = ops.env()
+        cf = ops.cloudflare_settings()
         public_host = self._public_host()
         try:
             proxies = ops.proxy_ports(public_host)
@@ -228,6 +229,7 @@ class Handler(BaseHTTPRequestHandler):
             "proxy_ports": proxies,
             "proxy_host": public_host,
             "proxy_error": proxy_error,
+            "cf": {"token_set": bool(cf["token"]), "email": cf["email"]},
             "states": {key: ops.container_state(key) for key in ("gateway", "panel", "singbox")},
             "state": ops.read_state(),
             "flash": ui.flash_html(params.get("flash", [""])[0], params.get("level", ["ok"])[0]),
@@ -302,6 +304,8 @@ class Handler(BaseHTTPRequestHandler):
             "/forwarding/apply": self._forwarding_apply,
             "/proxy/add": self._proxy_add,
             "/proxy/delete": self._proxy_delete,
+            "/cloudflare/save": self._cloudflare_save,
+            "/certs/renew": self._certs_renew,
             "/panel/route": self._panel_route,
             "/service/action": self._service_action,
         }
@@ -470,6 +474,9 @@ class Handler(BaseHTTPRequestHandler):
             form.get("remark", ""),
             form.get("kind", "reality"),
             self._public_host(),
+            domain=form.get("domain", ""),
+            email=form.get("email", ""),
+            want_cert=form.get("cert") == "1",
         )
         message = self._tr("flash.proxy_created", port=result["port"], link=result["link"])
         ops.remember("proxy", message)
@@ -484,6 +491,26 @@ class Handler(BaseHTTPRequestHandler):
         message = self._tr("flash.proxy_deleted")
         ops.remember("proxy", message)
         return "/forwarding", message, "ok"
+
+    def _cloudflare_save(self, form: dict[str, str]) -> tuple[str, str, str]:
+        updates: dict[str, str] = {}
+        token = (form.get("token") or "").strip()
+        if token:
+            updates["CF_API_TOKEN"] = token
+        updates["CF_EMAIL"] = (form.get("email") or "").strip()
+        ops.save_env(updates)
+        message = self._tr("flash.cf_saved")
+        ops.remember("certificates", message)
+        return "/forwarding", message, "ok"
+
+    def _certs_renew(self, form: dict[str, str]) -> tuple[str, str, str]:
+        ok, detail = ops.renew_certificates()
+        if ok:
+            message = self._tr("flash.certs_renewed", detail=detail)
+        else:
+            message = self._tr("flash.certs_renew_failed", detail=detail)
+        ops.remember("certificates", message)
+        return "/forwarding", message, "ok" if ok else "err"
 
     def _panel_route(self, form: dict[str, str]) -> tuple[str, str, str]:
         ok, detail = ops.patch_panel_route()

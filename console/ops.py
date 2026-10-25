@@ -17,7 +17,7 @@ ROOT = Path(os.environ.get("OUTLANDER_ROOT", "/repo")).resolve()
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from outlander import forward, inbounds, panel, render  # noqa: E402
+from outlander import certs, forward, inbounds, panel, render  # noqa: E402
 from outlander.uri import LinkError, parse  # noqa: E402
 
 DOCKER_SOCK = os.environ.get("DOCKER_SOCK", "/var/run/docker.sock")
@@ -328,7 +328,15 @@ def proxy_ports(public_host: str) -> list[dict]:
     return rows
 
 
-def add_proxy_port(port: int, remark: str, kind: str, public_host: str) -> dict:
+def add_proxy_port(
+    port: int,
+    remark: str,
+    kind: str,
+    public_host: str,
+    domain: str = "",
+    email: str = "",
+    want_cert: bool = False,
+) -> dict:
     if not 0 < port < 65536:
         raise OpError("err.proxy_busy", ports=str(port))
     if port in _reserved_ports() or forward.conflicting_ports({"listen": str(port), "listen_ip": ""}):
@@ -342,14 +350,27 @@ def add_proxy_port(port: int, remark: str, kind: str, public_host: str) -> dict:
             if low.isdigit() and high.isdigit() and int(low) <= port <= int(high):
                 raise OpError("err.proxy_forwarded", port=str(port))
 
+    domain = certs.normalise_domain(domain)
+    token = cloudflare_settings()["token"]
+    if want_cert:
+        if not certs.valid_domain(domain):
+            raise OpError("err.cert_domain")
+        if not token:
+            raise OpError("err.cert_token")
+
     client = panel_client()
     try:
         existing = {int(item.get("port") or 0) for item in client.list_inbounds()}
         if port in existing:
             raise OpError("err.proxy_exists", port=str(port))
         uuid_value = client.new_uuid()
-        name = remark.strip() or f"proxy-{port}"
-        if kind == "reality":
+        name = remark.strip() or (f"tls-{domain}" if want_cert else f"proxy-{port}")
+        if want_cert:
+            issue_certificate(domain, email, token)
+            cert_file, key_file = certs.panel_cert_paths(domain)
+            payload = inbounds.ws_tls_inbound(port, name, uuid_value, domain, cert_file, key_file)
+            link = inbounds.ws_tls_link(domain, port, uuid_value, domain, remark=name)
+        elif kind == "reality":
             private, public = client.new_reality_keys()
             short_id = secrets.token_hex(8)
             payload = inbounds.reality_inbound(port, name, uuid_value, private, public, short_id)
@@ -360,7 +381,7 @@ def add_proxy_port(port: int, remark: str, kind: str, public_host: str) -> dict:
         client.add_inbound(payload)
     except panel.PanelError as exc:
         raise OpError("err.proxy_create", detail=str(exc)) from exc
-    return {"link": link, "remark": name, "port": port}
+    return {"link": link, "remark": name, "port": port, "domain": domain if want_cert else ""}
 
 
 def delete_proxy_port(inbound_id: int) -> None:
@@ -372,6 +393,138 @@ def delete_proxy_port(inbound_id: int) -> None:
         client.delete_inbound(inbound_id)
     except panel.PanelError as exc:
         raise OpError("err.proxy_create", detail=str(exc)) from exc
+
+
+def save_env(updates: dict[str, str]) -> None:
+    path = ROOT / ".env"
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    written: set[str] = set()
+    output: list[str] = []
+    for line in lines:
+        key = line.split("=", 1)[0].strip()
+        if key in updates:
+            output.append(f"{key}={updates[key]}")
+            written.add(key)
+        else:
+            output.append(line)
+    for key, value in updates.items():
+        if key not in written:
+            output.append(f"{key}={value}")
+    path.write_text("\n".join(output) + "\n", encoding="utf-8")
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def cloudflare_settings() -> dict:
+    env = render.read_env(ROOT)
+    return {
+        "token": (env.get("CF_API_TOKEN") or "").strip(),
+        "email": (env.get("CF_EMAIL") or "").strip(),
+    }
+
+
+def _certbot(args: list[str]) -> tuple[bool, str]:
+    if not shutil.which("certbot"):
+        return False, "certbot is not installed in the console image"
+    command = [
+        "certbot",
+        *args,
+        "--config-dir",
+        str(ROOT / "data/letsencrypt"),
+        "--work-dir",
+        str(ROOT / "data/letsencrypt-work"),
+        "--logs-dir",
+        str(ROOT / "data/letsencrypt-logs"),
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=300)
+    except subprocess.TimeoutExpired:
+        return False, "certbot timed out"
+    if result.returncode != 0:
+        lines = (result.stderr or result.stdout).strip().splitlines()
+        return False, " ".join(lines[-3:])[:400]
+    return True, ""
+
+
+def _install_certificate(domain: str) -> None:
+    live = ROOT / "data/letsencrypt" / "live" / domain
+    target = certs.host_cert_dir(ROOT, domain)
+    target.mkdir(parents=True, exist_ok=True)
+    for name in ("fullchain.pem", "privkey.pem"):
+        source = live / name
+        if not source.exists():
+            raise OpError("err.cert_failed", detail=f"missing {name} for {domain}")
+        shutil.copy2(source, target / name)
+        os.chmod(target / name, 0o644)
+    _own([target / "fullchain.pem", target / "privkey.pem"])
+
+
+def install_all_certificates() -> int:
+    live_root = ROOT / "data/letsencrypt" / "live"
+    count = 0
+    if live_root.exists():
+        for lineage in sorted(live_root.iterdir()):
+            if (lineage / "fullchain.pem").exists() and (lineage / "privkey.pem").exists():
+                _install_certificate(lineage.name)
+                count += 1
+    if count:
+        try:
+            container_action("panel", "restart")
+        except Exception:  # noqa: BLE001 - docker may be unavailable
+            pass
+    return count
+
+
+def issue_certificate(domain: str, email: str, token: str) -> None:
+    domain = certs.normalise_domain(domain)
+    if not certs.valid_domain(domain):
+        raise OpError("err.cert_domain")
+    if not token:
+        raise OpError("err.cert_token")
+    credentials = ROOT / "data/cloudflare.ini"
+    credentials.parent.mkdir(parents=True, exist_ok=True)
+    credentials.write_text(f"dns_cloudflare_api_token = {token}\n", encoding="utf-8")
+    os.chmod(credentials, 0o600)
+    ok, detail = _certbot(
+        [
+            "certonly",
+            "--dns-cloudflare",
+            "--dns-cloudflare-credentials",
+            str(credentials),
+            "--non-interactive",
+            "--agree-tos",
+            "--keep-until-expiring",
+            "--email",
+            email or f"admin@{domain}",
+            "-d",
+            domain,
+        ]
+    )
+    if not ok:
+        raise OpError("err.cert_failed", detail=detail)
+    _install_certificate(domain)
+
+
+def renew_certificates() -> tuple[bool, str]:
+    credentials = ROOT / "data/cloudflare.ini"
+    if not credentials.exists():
+        return False, "no Cloudflare credentials stored yet"
+    ok, detail = _certbot(
+        [
+            "renew",
+            "--dns-cloudflare",
+            "--dns-cloudflare-credentials",
+            str(credentials),
+            "--non-interactive",
+            "--quiet",
+        ]
+    )
+    if not ok:
+        return False, detail
+    count = install_all_certificates()
+    return True, f"{count} certificate(s) refreshed"
 
 
 def patch_panel_route() -> tuple[bool, str]:

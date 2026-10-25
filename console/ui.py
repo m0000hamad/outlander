@@ -329,11 +329,39 @@ def forwarding(ctx: dict) -> str:
         + f'<div class="field"><label>{esc(t(lang, "proxy.kind"))}</label><select name="kind">'
         + f'<option value="reality">{esc(t(lang, "proxy.kind_reality"))}</option>'
         + f'<option value="ws">{esc(t(lang, "proxy.kind_ws"))}</option></select></div></div>'
+        + '<div class="row" style="margin-bottom:10px">'
+        + f'<div class="field"><label>{esc(t(lang, "proxy.domain"))}</label>'
+        + '<input name="domain" placeholder="proxy.example.com" class="mono"></div>'
+        + f'<div class="field"><label>{esc(t(lang, "proxy.email"))}</label>'
+        + '<input name="email" placeholder="you@example.com" class="mono"></div>'
+        + f'<div class="field" style="flex:0 0 auto"><label>{esc(t(lang, "proxy.cert"))}</label>'
+        + '<label class="row" style="gap:6px;align-items:center;cursor:pointer">'
+        + '<input type="checkbox" name="cert" value="1" style="width:auto">'
+        + f'<span class="tiny muted">{esc(t(lang, "proxy.cert_note"))}</span></label></div></div>'
         + f'<button class="btn" type="submit">{esc(t(lang, "proxy.add"))}</button></form>'
         + '<div class="hr"></div>'
         + f'<h2>{esc(t(lang, "proxy.table"))}</h2>'
         + proxy_table
         + "</div>"
+    )
+
+    cf = ctx.get("cf", {})
+    token_state = t(lang, "cf.token_set") if cf.get("token_set") else t(lang, "cf.token_missing")
+    cf_card = (
+        f'<div class="card" style="margin-top:14px"><h2>{esc(t(lang, "cf.title"))}</h2>'
+        f'<p>{esc(t(lang, "cf.hint"))}</p>'
+        '<form method="post" action="/cloudflare/save">'
+        f'{csrf_input(ctx["csrf"])}'
+        '<div class="row" style="margin-bottom:10px">'
+        f'<div class="field"><label>{esc(t(lang, "cf.token"))} — {esc(token_state)}</label>'
+        '<input name="token" type="password" placeholder="••••••••" autocomplete="off"></div>'
+        f'<div class="field"><label>{esc(t(lang, "cf.email"))}</label>'
+        f'<input name="email" value="{esc(cf.get("email", ""))}" class="mono"></div>'
+        f'<button class="btn" type="submit">{esc(t(lang, "cf.save"))}</button></div></form>'
+        '<form method="post" action="/certs/renew" style="margin:0">'
+        f'{csrf_input(ctx["csrf"])}'
+        f'<button class="btn ghost sm" type="submit">{esc(t(lang, "cf.renew"))}</button></form>'
+        "</div>"
     )
 
     add_card = (
@@ -384,7 +412,7 @@ def forwarding(ctx: dict) -> str:
     body = (
         f"<h1>{esc(t(lang, 'fw.title'))}</h1>"
         f'<p class="sub">{esc(t(lang, "fw.subtitle"))}</p>'
-        f'{proxy_card}<div style="height:14px"></div>{add_card}<div style="height:14px"></div>{hop_card}{table}'
+        f'{proxy_card}{cf_card}<div style="height:14px"></div>{add_card}<div style="height:14px"></div>{hop_card}{table}'
     )
     return layout(t(lang, "fw.title"), body, "/forwarding", ctx["flash"], lang)
 

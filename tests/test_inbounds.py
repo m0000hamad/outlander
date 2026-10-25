@@ -49,6 +49,31 @@ class WsInboundTests(unittest.TestCase):
         self.assertIn("path=%2Fol", link)
 
 
+class WsTlsInboundTests(unittest.TestCase):
+    def payload(self):
+        return inbounds.ws_tls_inbound(
+            2083, "tls-2083", "uuid-3", "proxy.example.com",
+            "/root/cert/proxy.example.com/fullchain.pem",
+            "/root/cert/proxy.example.com/privkey.pem",
+        )
+
+    def test_payload_shape(self):
+        payload = self.payload()
+        self.assertEqual(payload["streamSettings"]["security"], "tls")
+        tls = payload["streamSettings"]["tlsSettings"]
+        self.assertEqual(tls["serverName"], "proxy.example.com")
+        self.assertEqual(tls["certificates"][0]["certificateFile"], "/root/cert/proxy.example.com/fullchain.pem")
+        self.assertEqual(payload["streamSettings"]["wsSettings"]["host"], "proxy.example.com")
+
+    def test_link_uses_the_domain(self):
+        link = inbounds.link_for(self.payload(), "203.0.113.9")
+        self.assertIn("vless://uuid-3@proxy.example.com:2083", link)
+        self.assertIn("security=tls", link)
+        self.assertIn("sni=proxy.example.com", link)
+        self.assertIn("host=proxy.example.com", link)
+        self.assertIn("path=%2Fol", link)
+
+
 class LinkForTests(unittest.TestCase):
     def test_api_tunnel_is_ignored(self):
         self.assertEqual(inbounds.link_for({"protocol": "tunnel", "port": 62789, "settings": {}}, "h"), "")

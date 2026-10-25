@@ -44,6 +44,32 @@ template routes everything to `ol-gateway`.
 Below the form every VLESS inbound of the panel is listed with its link (click to select) and a delete
 button - that includes the inbounds created by hand in the 3x-ui UI.
 
+## Certificates (Cloudflare DNS-01)
+
+Ticking **Issue a TLS certificate** on a proxy port turns that port into `VLESS + WS + TLS` and asks
+Let's Encrypt for a certificate through the Cloudflare DNS challenge, so port 80 (busy with Caddy on
+most boxes) and a public A record are not needed:
+
+1. Create an API token with `Zone -> DNS -> Edit` for the zone.
+2. Paste it and the account e-mail into the **Cloudflare** card. The token is written to `.env`
+   (`CF_API_TOKEN`, chmod 600, git-ignored) and never rendered back to the page.
+3. Create the proxy port with a subdomain, e.g. `p1.example.com`. The console runs
+   `certbot --dns-cloudflare`, copies `fullchain.pem` / `privkey.pem` into `certs/<domain>/` and
+   creates the inbound pointing at `/root/cert/<domain>/...` (the panel mounts `./certs` there).
+4. Clients use `vless://...@p1.example.com:<port>?type=ws&security=tls&sni=p1.example.com&host=p1.example.com&path=%2Fol`.
+
+Renewal runs daily at 04:15 through `scripts/cert.sh --renew` (cron installed by `scripts/install.sh`);
+the panel is restarted only when something actually renewed. The **Renew certificates** button does the
+same on demand.
+
+Notes:
+
+- open the port in the firewall (`ufw allow <port>/tcp`);
+- if the record is proxied by Cloudflare, the port must be one Cloudflare serves
+  (`443, 2053, 2083, 2087, 2096, 8443`);
+- a certificate is only needed for TLS protocols - REALITY works without one and is still the better
+  choice for direct access.
+
 ## Adding forwards
 
 | fields | result |

@@ -5,10 +5,20 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+if [[ "${1:-}" == "--renew" ]]; then
+  if ! docker ps --format '{{.Names}}' | grep -qx ol-console; then
+    echo "ol-console is not running; nothing to renew" >&2
+    exit 1
+  fi
+  docker exec ol-console python3 -c "from console import ops; ok, detail = ops.renew_certificates(); print(detail); raise SystemExit(0 if ok else 1)"
+  exit $?
+fi
+
 DOMAIN="${1:-}"
 EMAIL="${EMAIL:-}"
 if [[ -z "$DOMAIN" ]]; then
   echo "usage: sudo bash scripts/cert.sh hy2.example.com" >&2
+  echo "       sudo bash scripts/cert.sh --renew      # renew Cloudflare DNS-01 certs"
   echo "   or: EMAIL=you@example.com sudo bash scripts/cert.sh hy2.example.com" >&2
   exit 1
 fi

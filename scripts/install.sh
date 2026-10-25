@@ -136,6 +136,10 @@ EOF
 systemctl daemon-reload >/dev/null 2>&1 || true
 systemctl enable --now outlander-forward.service >/dev/null 2>&1 || true
 
+say "installing the certificate renewal cron"
+CRON_RENEW="15 4 * * * cd ${ROOT} && bash scripts/cert.sh --renew >> /var/log/outlander-cert.log 2>&1"
+( (crontab -l 2>/dev/null || true) | grep -v 'scripts/cert.sh --renew'; echo "$CRON_RENEW" ) | crontab -
+
 if command -v ufw >/dev/null 2>&1; then
   ufw allow 22/tcp >/dev/null 2>&1 || true
   ufw allow "${PANEL_PORT:-2053}/tcp" >/dev/null 2>&1 || true
