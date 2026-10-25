@@ -187,7 +187,25 @@ def gateway_config(inventory: dict, env: dict | None = None) -> dict:
             }
         )
 
-    rules: list[dict] = [
+    rules: list[dict] = []
+    if channels:
+        # Domains must reach the balancer before any IP rule: with IPIfNonMatch the
+        # local (often poisoned) resolver would otherwise turn a blocked domain into
+        # a private IP and match the "direct" rule below. Domestic domains are still
+        # kept direct, and the far end resolves the domain itself.
+        if settings.get("direct_domestic", True):
+            rules.append(
+                {
+                    "type": "field",
+                    "outboundTag": "direct",
+                    "domain": ["domain:ir", "geosite:category-ir"],
+                }
+            )
+        if settings.get("block_ads", True):
+            rules.append({"type": "field", "outboundTag": "block", "domain": ["geosite:category-ads-all"]})
+        rules.append({"type": "field", "domain": ["regexp:.+"], "balancerTag": "ol-auto"})
+
+    rules.append(
         {
             "type": "field",
             "outboundTag": "direct",
@@ -202,19 +220,10 @@ def gateway_config(inventory: dict, env: dict | None = None) -> dict:
                 "fc00::/7",
                 "fe80::/10",
             ],
-        },
-    ]
+        }
+    )
     if settings.get("direct_domestic", True):
-        rules.append(
-            {
-                "type": "field",
-                "outboundTag": "direct",
-                "domain": ["domain:ir", "geosite:category-ir"],
-            }
-        )
         rules.append({"type": "field", "outboundTag": "direct", "ip": ["geoip:ir"]})
-    if settings.get("block_ads", True):
-        rules.append({"type": "field", "outboundTag": "block", "domain": ["geosite:category-ads-all"]})
     if channels:
         rules.append({"type": "field", "network": "tcp,udp", "balancerTag": "ol-auto"})
 
