@@ -294,6 +294,27 @@ def nft_text(data: dict) -> str:
                 parts.append(f"{proto} dport {rule['listen']}")
             parts.append(f"dnat ip to {resolve_target(rule['target'])}")
             lines.append("    " + " ".join(parts))
+    # Large TLS ClientHellos can black-hole on low-MTU paths even when a TCP
+    # connect probe succeeds. Only reduce MSS for DNAT flows and our tunnel ports.
+    tunnel_ports = sorted({
+        int(rule["listen"])
+        for raw in data.get("rules", [])
+        if (rule := normalise_rule(raw))["proto"] in {"tcp", "both"}
+        and effective_mode(rule) == "dokodemo" and rule["listen"].isdigit()
+    })
+    syn_mss = "tcp flags & (syn | rst) == syn tcp option maxseg size > 1200 tcp option maxseg size set 1200"
+    lines += [
+        "  }",
+        "  chain mss_forward {",
+        "    type filter hook forward priority -150; policy accept;",
+        f"    ct status dnat {syn_mss}",
+        "  }",
+        "  chain mss_output {",
+        "    type route hook output priority -150; policy accept;",
+    ]
+    if tunnel_ports:
+        ports = ", ".join(str(port) for port in tunnel_ports)
+        lines.append(f"    tcp sport {{ {ports} }} {syn_mss}")
     lines += [
         "  }",
         "  chain postrouting {",
