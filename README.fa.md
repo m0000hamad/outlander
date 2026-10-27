@@ -25,10 +25,21 @@
 روی Ubuntu 22.04 یا 24.04 (root):
 
 ```bash
-git clone https://github.com/m0000hamad/outlander.git
-cd outlander
-sudo bash scripts/install.sh
+(
+  set -e
+  if [ -d "$HOME/outlander/.git" ]; then
+    git -C "$HOME/outlander" pull --ff-only
+  else
+    git clone https://github.com/m0000hamad/outlander.git "$HOME/outlander"
+  fi
+  cd "$HOME/outlander"
+  sudo bash scripts/install.sh
+  make doctor
+)
 ```
+
+این دستور از هر پوشه‌ای قابل اجرای مجدد است: مخزن موجود در `~/outlander` را به‌روز می‌کند، داده‌های محلی را حفظ می‌کند و با خطای به‌روزرسانی یا نصب متوقف می‌شود. پوشهٔ غیرخالیِ نامرتبط بازنویسی نمی‌شود.
+
 
 اسکریپت این کارها را انجام می‌دهد: نصب Docker، تنظیم BBR، ساخت `.env` با پسوردهای تصادفی، رندر کانفیگ، build و بالا آوردن کنسول و بقیهٔ سرویس‌ها، ست کردن یوزر/پس پنل، و ساخت یونیت systemd برای ماندگاری قوانین فایروال بعد از ریبوت.
 
