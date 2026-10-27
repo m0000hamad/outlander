@@ -4,7 +4,8 @@
 
 - Add bilingual Peer servers page with root SSH password/private-key registration,
   connection test, pinned host keys, background setup status, transport removal,
-  and credential deletion. Block credential submissions over public plaintext HTTP.
+  and credential deletion. Authenticated credential submission supports HTTP and HTTPS;
+  remote SSH authentication and host-key checking are independent of web transport.
 - Automatically prepare SSH/TCP, VLESS/REALITY and VLESS/XHTTP/REALITY transports on
   Ubuntu/Debian peers. Isolate remote services by installation, peer and transport;
   validate generated Xray config and refuse existing occupied ports or foreign

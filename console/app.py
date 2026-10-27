@@ -6,8 +6,6 @@ import hashlib
 import hmac
 import os
 import secrets
-import ssl
-import ipaddress
 import sys
 import threading
 import time
@@ -467,8 +465,6 @@ class Handler(BaseHTTPRequestHandler):
         return "/forwarding", message, "ok" if tunnel_ok else "err"
 
     def _peers_add(self, form: dict[str, str]) -> tuple[str, str, str]:
-        if not (isinstance(self.connection, ssl.SSLSocket) or ipaddress.ip_address(self.client_address[0]).is_loopback):
-            raise peers.PeerError(self._tr("peer.secure"))
         peers.save_server(ops.ROOT, form)
         return "/peers", self._tr("peer.saved"), "ok"
 

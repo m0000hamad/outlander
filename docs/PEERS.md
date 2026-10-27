@@ -5,15 +5,17 @@ and prepares an isolated tunnel on an Ubuntu/Debian server you control.
 
 ## Workflow
 
-1. Open the console through HTTPS or a local SSH tunnel. To use the latter:
+1. Open the console at its HTTP or HTTPS address and log in. Peer SSH connections
+   do not depend on the console's web transport. To optionally encrypt the browser
+   connection using a local SSH tunnel:
 
    ```bash
    ssh -L 18099:127.0.0.1:8099 root@YOUR_OUTLANDER_IP
    ```
 
-   Open `http://127.0.0.1:18099/peers` locally and log in. Submitting SSH credentials
-   over public plain HTTP is rejected. A TLS reverse proxy connected over loopback
-   also works; do not expose that proxy's unencrypted upstream to other machines.
+   Open `http://127.0.0.1:18099/peers` locally and log in. Direct authenticated HTTP
+   submissions are also accepted. Plain HTTP does not encrypt browser-to-console
+   credentials; remote SSH authentication and host-key checking remain enabled.
 2. Save a name, IP/hostname, SSH port, root username, and **either** a password
    **or** an unencrypted private SSH key. Test SSH and check the displayed host-key
    fingerprint against the peer's console. The first key is pinned; subsequent

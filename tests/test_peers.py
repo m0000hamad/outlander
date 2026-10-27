@@ -224,14 +224,16 @@ class PeerHTTPTests(unittest.TestCase):
         self.assertNotIn("NEVER-ECHO-THIS", page)
         self.assertEqual(len(peers.public(self.root)), 1)
 
-    def test_public_plain_http_cannot_submit_root_credentials(self):
+    def test_remote_authenticated_handler_can_save_server_without_https(self):
         handler = object.__new__(app.Handler)
         handler.connection = object()
         handler.client_address = ("203.0.113.20", 12345)
         handler._tr = lambda key: key
-        with self.assertRaises(peers.PeerError), mock.patch.object(peers, "save_server") as save:
-            handler._peers_add({"password": "private"})
-        save.assert_not_called()
+        with mock.patch.object(peers, "save_server") as save:
+            result = handler._peers_add({"password": "private"})
+        save.assert_called_once_with(self.root, {"password": "private"})
+        self.assertEqual(result[0], "/peers")
+        self.assertEqual(result[2], "ok")
 
 
 if __name__ == "__main__":
