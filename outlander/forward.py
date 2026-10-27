@@ -38,6 +38,9 @@ def edit_token(rule: dict) -> str:
               ("proto", "listen", "listen_ip", "target", "mode", "peer_id", "transport", "peer_rule_id")}
     fields["proto"] = fields["proto"] or "tcp"
     fields["mode"] = fields["mode"] or "nft"
+    if fields["mode"] == "auto":
+        for key in ("peer_id", "transport", "peer_rule_id"):
+            fields[key] = ""  # Selected runtime is not a user-edited Auto setting.
     return hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()
 
 
@@ -137,7 +140,8 @@ def normalise_rule(rule: dict) -> dict:
     target = _target(rule.get("target") or "")
     if listen == "*" and ":" in target:
         raise ValueError("forwarding every port cannot change the port; drop the target port")
-    if mode in {"dokodemo", "peer"}:
+    peer_active = mode == "peer" or (mode == "auto" and rule.get("resolved") == "peer")
+    if mode == "dokodemo" or peer_active:
         if listen_ip:
             raise ValueError("dokodemo listens on all addresses; drop listen_ip")
         if not listen.isdigit():
@@ -155,7 +159,11 @@ def normalise_rule(rule: dict) -> dict:
         "last_error": str(rule.get("last_error") or ""),
         "checked_at": str(rule.get("checked_at") or ""),
     }
-    if mode == "peer":
+    if mode == "auto" and rule.get("auto_rule_id"):
+        if not re.fullmatch(r"[a-f0-9]{12}", str(rule["auto_rule_id"])):
+            raise ValueError("invalid automatic rule identifier")
+        result["auto_rule_id"] = str(rule["auto_rule_id"])
+    if peer_active:
         for key in ("peer_id", "peer_rule_id"):
             value = str(rule.get(key) or "")
             if not re.fullmatch(r"[a-f0-9]{12}", value):
@@ -167,6 +175,7 @@ def normalise_rule(rule: dict) -> dict:
         if transport == "ssh" and proto != "tcp":
             raise ValueError("SSH forwarding supports TCP only")
         result["transport"] = transport
+        result["peer_name"] = str(rule.get("peer_name") or "")
     return result
 
 

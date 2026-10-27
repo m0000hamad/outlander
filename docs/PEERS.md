@@ -34,6 +34,29 @@ and prepares an isolated tunnel on an Ubuntu/Debian server you control.
    accept `tcp`, `udp`, or `both`. Managed forwards require a single port and listen
    on all local addresses. Existing listen ports cannot be reused.
 
+## Automatic peer selection
+
+**Auto** can select prepared REALITY, XHTTP and SSH peers without choosing a
+specific server manually. It prefers direct access, then a working prepared peer,
+then the original Dokodemo gateway. An already-selected healthy peer is preferred
+over other peers to avoid switching needlessly; recovery of the direct path
+returns the rule to direct access. SSH is considered only for TCP rules.
+
+REALITY/XHTTP candidates are checked using private, temporary SOCKS probe
+containers bound to loopback. A real HTTP/HTTPS response through the transport
+is required, using the inventory's existing `settings.health_check` URL, followed
+by a destination TCP CONNECT check. The gateway also needs a real HTTP response.
+SSH candidates use their authenticated dynamic forward to check destination TCP.
+These are transport/TCP health checks; they do not authenticate the application's
+VLESS credentials or independently verify UDP delivery.
+
+Only profiles already marked ready are considered; Auto never installs or changes
+the remote server. Active rules show the selected peer name and transport.
+Switches use the rule editor's rollback path. If every candidate fails, the last
+selection remains configured with an error status. Probes are removed after each
+check; interrupted probes are cleaned on console restart. Fixed rules are not
+converted to Auto or changed by these checks.
+
 Authenticated managed REALITY/XHTTP tunnels explicitly allow loopback and RFC1918
 destinations, so they can forward services on the peer's private network. The
 core's default block on link-local/metadata destinations remains in place.

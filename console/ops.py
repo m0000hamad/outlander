@@ -244,21 +244,61 @@ def _gateway() -> tuple[str, int]:
     return ("127.0.0.1", int(env.get("GATEWAY_SOCKS_PORT", "10808")))
 
 
+def _ready_peer_routes(rule: dict) -> list[tuple[dict, str]]:
+    if not (ROOT / "data/peers/servers.json").exists():
+        return []
+    routes = [(peer, kind) for peer in peers.load(ROOT)["servers"]
+              for kind in ("reality", "xhttp", "ssh")
+              if peer.get("transports", {}).get(kind, {}).get("status") == "ready"
+              and (kind != "ssh" or rule.get("proto", "tcp") == "tcp")]
+    # Keep a working selected peer rather than oscillating between healthy peers.
+    routes.sort(key=lambda route: (route[0]["id"] != rule.get("peer_id") or route[1] != rule.get("transport"),
+                                   ("reality", "xhttp", "ssh").index(route[1])))
+    return routes
+
+
 def _decide(rule: dict) -> tuple[str, str]:
-    """Pick the path for an auto rule: nft when direct works, dokodemo via the chain."""
+    """Prefer direct, then healthy prepared peers, then the original gateway."""
     host, _, port = rule["target"].partition(":")
     if not port.isdigit():
         return "", "target needs a port"
     try:
         address = forward.resolve_target(rule["target"]).partition(":")[0]
-    except ValueError as exc:
-        return "", str(exc)
-    if probe.tcp_reachable(address, int(port), 3):
-        return "nft", ""
+    except ValueError:
+        address = host  # Peer-side DNS may work while local DNS does not.
+    else:
+        if probe.tcp_reachable(address, int(port), 3):
+            return "nft", ""
+    if rule.get("listen_ip") or (rule.get("listen") and not str(rule["listen"]).isdigit()):
+        return "", "tunnel fallback requires a single port and an empty listen IP"
+    for peer, kind in _ready_peer_routes(rule):
+        if peers.probe_target(ROOT, peer, kind, host, int(port)):
+            return f"peer:{peer['id']}:{kind}", ""
     proxy_host, proxy_port = _gateway()
-    if probe.socks5_reachable(proxy_host, proxy_port, address, int(port), 6):
+    health_url = render.load(ROOT).get("settings", {}).get("health_check") or "https://www.gstatic.com/generate_204"
+    if (probe.socks5_reachable(proxy_host, proxy_port, address, int(port), 6)
+            and probe.socks5_http_reachable(proxy_host, proxy_port, health_url, 6)):
         return "dokodemo", ""
-    return "", "direct and tunnel both failed"
+    return "", "direct, prepared peers and gateway failed"
+
+
+def _assign_decision(rule: dict, decision: str, detail: str = "") -> None:
+    rule.update(last_error=detail, checked_at=_now())
+    if decision.startswith("peer:"):
+        _, peer_id, kind = decision.split(":")
+        peer = peers.get(ROOT, peer_id)
+        runtime_id = rule.get("auto_rule_id") or rule.get("peer_rule_id") or secrets.token_hex(6)
+        rule.update(resolved="peer", peer_id=peer_id, transport=kind, peer_name=peer["name"],
+                    auto_rule_id=runtime_id, peer_rule_id=runtime_id)
+    else:
+        rule["resolved"] = decision
+        for key in ("peer_id", "peer_rule_id", "peer_name", "transport"):
+            rule.pop(key, None)
+
+
+def _route_key(rule: dict) -> tuple:
+    mode = forward.effective_mode(rule)
+    return (mode, rule.get("peer_id"), rule.get("transport")) if mode == "peer" else (mode,)
 
 
 def apply_tunnel() -> tuple[bool, str]:
@@ -307,9 +347,7 @@ def add_forward(proto: str, listen_ip: str, listen: str, target: str, mode: str 
         rule["resolved"] = "nft"
     elif rule["mode"] == "auto":
         decision, detail = _decide(rule)
-        rule["checked_at"] = _now()
-        rule["last_error"] = "" if decision else detail
-        rule["resolved"] = decision
+        _assign_decision(rule, decision, detail)
     else:
         rule["resolved"] = "dokodemo"
 
@@ -373,7 +411,7 @@ def add_peer_forward(form: dict[str, str]) -> str:
 @forward_transaction
 def remove_peer_forward(index: int) -> None:
     data = forward.load(ROOT)
-    if not 0 <= index < len(data["rules"]) or data["rules"][index].get("mode") != "peer":
+    if not 0 <= index < len(data["rules"]) or forward.effective_mode(data["rules"][index]) != "peer":
         raise peers.PeerError("Managed forward not found / فوروارد مدیریت‌شده پیدا نشد")
     peers.delete_forward(ROOT, data["rules"][index])
     data["rules"].pop(index)
@@ -389,7 +427,18 @@ def _edited_rule(old: dict, form: dict[str, str]) -> dict:
     if raw["mode"] == "peer":
         raw.update(peer_id=form.get("peer_id", ""), transport=form.get("transport", ""),
                    peer_rule_id=old.get("peer_rule_id") or secrets.token_hex(6))
+    elif raw["mode"] == "auto":
+        if old.get("auto_rule_id") or old.get("peer_rule_id"):
+            raw["auto_rule_id"] = old.get("auto_rule_id") or old["peer_rule_id"]
+        # Selection preference is runtime-only; retain it for a health re-check.
+        for key in ("peer_id", "transport"):
+            if old.get(key):
+                raw[key] = old[key]
     rule = forward.normalise_rule(raw)
+    if rule["mode"] == "auto":
+        for key in ("peer_id", "transport"):
+            if old.get(key):
+                rule[key] = old[key]
     if rule["mode"] == "peer":
         profile = peers.get(ROOT, rule["peer_id"]).get("transports", {}).get(rule["transport"], {})
         if profile.get("status") != "ready":
@@ -401,7 +450,7 @@ def _edited_rule(old: dict, form: dict[str, str]) -> dict:
         decision, detail = _decide(rule)
         if not decision:
             raise peers.PeerError("Neither path is reachable; previous rule unchanged / هیچ مسیر سالمی پیدا نشد؛ قانون قبلی تغییر نکرد")
-        rule.update(resolved=decision, last_error=detail, checked_at=_now())
+        _assign_decision(rule, decision, detail)
     else:
         rule["resolved"] = "dokodemo" if rule["mode"] == "dokodemo" else "nft"
     return rule
@@ -464,24 +513,29 @@ def update_forward(index: int, token: str, form: dict[str, str]) -> str:
     if not token or not secrets.compare_digest(token, forward.edit_token(old)):
         raise peers.PeerError("Rule changed; refresh before editing / قانون تغییر کرده؛ صفحه را تازه کنید")
     rule = _edited_rule(old, form)
-    if forward.edit_token(rule) == forward.edit_token(old):
+    if forward.edit_token(rule) == forward.edit_token(old) and _route_key(rule) == _route_key(old):
         return f"{rule['listen']} → {rule['target']}"
     _validate_edit_ports(old, rule, original["rules"][:index] + original["rules"][index + 1:], original.get("hop", {}))
     candidate = copy.deepcopy(original)
     candidate["rules"][index] = rule
+    return _apply_forward_change(original, candidate, old, rule)
+
+
+def _apply_forward_change(original: dict, candidate: dict, old: dict | None, rule: dict) -> str:
+    """One rollback-capable path for manual edits and automatic failover."""
     env_values = env()
     legacy_changed = tunnel.config(original, env_values) != tunnel.config(candidate, env_values)
     old_peer_removed = new_peer_created = legacy_touched = False
     try:
         forward.save(ROOT, candidate)
         forward.render(ROOT)
-        if old.get("mode") == "peer":
+        if old and forward.effective_mode(old) == "peer":
             peers.delete_forward(ROOT, old)
             old_peer_removed = True
         if legacy_changed:
             legacy_touched = True
             _reload_legacy_checked(candidate, env_values)
-        if rule["mode"] == "peer":
+        if forward.effective_mode(rule) == "peer":
             peers.create_forward(ROOT, rule)
             new_peer_created = True
         ok, detail = apply_forwarding()
@@ -513,38 +567,46 @@ def update_forward(index: int, token: str, form: dict[str, str]) -> str:
 
 
 @forward_transaction
-def reconcile_forwards() -> str:
-    """Re-evaluate auto rules and switch direct <-> tunnel when the path changes."""
-    data = forward.load(ROOT)
-    dirty = False
-    nft_changed = False
-    tunnel_changed = False
-    messages: list[str] = []
+def add_auto_forward(form: dict[str, str]) -> str:
+    original = forward.load(ROOT)
+    rule = _edited_rule({}, form | {"mode": "auto"})
+    placeholder = {"mode": "nft", "listen": rule["listen"], "proto": rule["proto"]}
+    _validate_edit_ports(placeholder, rule, original["rules"], original.get("hop", {}))
+    candidate = copy.deepcopy(original)
+    candidate["rules"].append(rule)
+    return _apply_forward_change(original, candidate, None, rule)
 
-    for rule in data.get("rules", []):
+
+@forward_transaction
+def reconcile_forwards() -> str:
+    """Re-evaluate every eligible Auto rule using the same transactional switch as edits."""
+    data = forward.load(ROOT)
+    messages: list[str] = []
+    for index in range(len(data.get("rules", []))):
+        rule = data["rules"][index]
         if (rule.get("mode") or "nft") != "auto" or not str(rule.get("listen", "")).isdigit():
             continue
         decision, detail = _decide(rule)
-        rule["checked_at"] = _now()
-        rule["last_error"] = "" if decision else detail
-        dirty = True
-        if not decision or decision == rule.get("resolved"):
+        if not decision:
+            rule.update(checked_at=_now(), last_error=detail)
             continue
-
-        rule["resolved"] = decision
-        if decision == "nft":
-            nft_changed = True
-            messages.append(f"{rule['listen']} -> direct")
+        replacement = copy.deepcopy(rule)
+        _assign_decision(replacement, decision)
+        if _route_key(rule) == _route_key(replacement):
+            data["rules"][index] = replacement
+            continue
+        candidate = copy.deepcopy(data)
+        candidate["rules"][index] = replacement
+        try:
+            _apply_forward_change(data, candidate, rule, replacement)
+        except Exception as error:
+            data = forward.load(ROOT)
+            data["rules"][index].update(checked_at=_now(), last_error=str(error))
         else:
-            tunnel_changed = True
-            messages.append(f"{rule['listen']} -> tunnel")
-
-    if dirty:
-        forward.save(ROOT, data)
-    if nft_changed or tunnel_changed:
-        forward.render(ROOT)
-        apply_forwarding()
-        apply_tunnel()
+            data = candidate
+            label = (replacement.get("peer_name", "") + "/" + replacement.get("transport", "")) if replacement["resolved"] == "peer" else replacement["resolved"]
+            messages.append(f"{rule['listen']} -> {label}")
+    forward.save(ROOT, data)
     return ", ".join(messages)
 
 

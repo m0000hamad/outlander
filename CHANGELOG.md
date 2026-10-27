@@ -1,5 +1,19 @@
 # Changes
 
+## Console 1.4 — automatic prepared-peer failover
+
+- Extend Auto to prepared REALITY, XHTTP and compatible SSH peers. Prefer direct,
+  retain a healthy current peer, try other prepared peers, and keep the original
+  Dokodemo gateway as a final fallback. Support peer-side DNS when local DNS fails.
+- Verify actual HTTP/HTTPS traffic through loopback-only temporary probe containers;
+  a local SOCKS acknowledgement alone is insufficient. Clean probes after checks
+  and recover interrupted probes after console restart. No remote installs occur.
+- Preserve mode=auto while tracking the active peer/server/runtime separately.
+  Display the selected server and transport without making editor forms stale.
+- Reuse rollback-capable deployment for automatic switches, including owned peer
+  container creation/removal. Preserve the previous route on failed deployment or
+  when no healthy route is found. Leave fixed forwarding rules unchanged.
+
 ### Auto route visibility
 
 Active rules now explicitly display both automatic mode and the selected path

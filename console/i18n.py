@@ -370,6 +370,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
 
 TRANSLATIONS["fa"].update({
+    "fw.auto_note": "خودکار: ابتدا مسیر مستقیم؛ در صورت نیاز تونل‌های آمادهٔ REALITY، XHTTP و SSH سرورهای مقابل؛ سپس گیت‌وی Dokodemo. مسیر فعال در جدول نمایش داده می‌شود. SSH فقط برای TCP انتخاب می‌شود.",
     "fw.auto_path": "خودکار · مسیر فعلی: {path}",
     "fw.edit": "ویرایش", "fw.cancel": "انصراف", "fw.save_edit": "ذخیره و اعمال",
     "fw.edit_note": "تغییرات روی همین قانون اعمال می‌شوند؛ در صورت خطا، قانون قبلی بازیابی می‌شود.",
@@ -390,6 +391,7 @@ TRANSLATIONS["fa"].update({
     "peer.removed": "حذف انجام شد.",
 })
 TRANSLATIONS["en"].update({
+    "fw.auto_note": "Auto: direct first, then prepared REALITY/XHTTP/SSH peer tunnels, then the original Dokodemo gateway. The active server and transport appear in the table. SSH is used only for TCP rules.",
     "fw.auto_path": "Auto → {path}",
     "fw.edit": "Edit", "fw.cancel": "Cancel", "fw.save_edit": "Save and apply",
     "fw.edit_note": "Changes replace this rule. If applying fails, the previous rule is restored.",

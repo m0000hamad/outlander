@@ -12,15 +12,17 @@ import subprocess
 import threading
 import time
 import uuid
+import urllib.parse
 from pathlib import Path
 
-from outlander import forward
+from outlander import forward, probe, render
 
 KINDS = {"ssh": "SSH / TCP", "reality": "VLESS + REALITY", "xhttp": "VLESS + XHTTP + REALITY"}
 IMAGE = "ghcr.io/xtls/xray-core:latest"
 _LOCK = threading.RLock()
 _JOBS: set[str] = set()
 _SSH: dict[str, subprocess.Popen] = {}
+_PROBE_LOCK = threading.Lock()
 
 
 class PeerError(ValueError):
@@ -414,7 +416,7 @@ def forward_name(rule: dict) -> str:
     return "ol-peer-fwd-" + rule["peer_rule_id"]
 
 
-def create_forward(root: Path, rule: dict) -> None:
+def create_forward(root: Path, rule: dict, *, probe_only: bool = False) -> None:
     rule = forward.normalise_rule(rule)
     peer = get(root, rule["peer_id"])
     profile = peer.get("transports", {}).get(rule["transport"], {})
@@ -426,7 +428,11 @@ def create_forward(root: Path, rule: dict) -> None:
     socks_port = ensure_ssh(root, peer) if rule["transport"] == "ssh" else 0
     folder = directory(root) / "forwards" / rule["peer_rule_id"]
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
-    _write(folder / "config.json", json.dumps(forward_config(rule, peer, socks_port)))
+    config = forward_config(rule, peer, socks_port)
+    if probe_only:
+        config["inbounds"] = [{"protocol": "socks", "listen": "127.0.0.1", "port": int(rule["listen"]),
+                               "settings": {"auth": "noauth", "udp": False}}]
+    _write(folder / "config.json", json.dumps(config))
     os.chown(folder, 0, 65532)
     os.chmod(folder, 0o750)
     os.chown(folder / "config.json", 0, 65532)
@@ -441,6 +447,9 @@ def create_forward(root: Path, rule: dict) -> None:
         container["User"] = "0:0"
         container["HostConfig"].update(CapDrop=["ALL"], CapAdd=["NET_BIND_SERVICE"],
                                      SecurityOpt=["no-new-privileges:true"])
+    if probe_only:
+        container["Labels"].update({"outlander.peer.probe": "true", "outlander.peer.probe_rule_id": rule["peer_rule_id"]})
+        container["HostConfig"]["RestartPolicy"] = {"Name": "no"}
     status, _ = api("POST", f"/containers/create?name={name}", container)
     if status != 201:
         raise PeerError("Could not create isolated forward / ساخت فوروارد مستقل ناموفق بود")
@@ -476,6 +485,61 @@ def delete_forward(root: Path, rule: dict) -> None:
             raise PeerError("Could not stop forward / توقف فوروارد ناموفق بود")
     config = directory(root) / "forwards" / rule["peer_rule_id"] / "config.json"
     config.unlink(missing_ok=True)
+
+
+def probe_target(root: Path, peer: dict, kind: str, host: str, port: int) -> bool:
+    """Probe a prepared transport privately without replacing an active listener."""
+    if peer.get("transports", {}).get(kind, {}).get("status") != "ready":
+        return False
+    try:
+        if kind == "ssh":
+            socks_port = ensure_ssh(root, peer)
+            return probe.socks5_reachable("127.0.0.1", socks_port, host, port, 5)
+        with _PROBE_LOCK:
+            with socket.socket() as sock:
+                sock.bind(("127.0.0.1", 0))
+                listen = sock.getsockname()[1]
+            rule = {"mode": "peer", "peer_id": peer["id"], "transport": kind, "proto": "tcp",
+                    "listen": str(listen), "target": f"{host}:{port}", "peer_rule_id": secrets.token_hex(6)}
+            created = False
+            try:
+                create_forward(root, rule, probe_only=True)
+                created = True
+                url = render.load(root).get("settings", {}).get("health_check") or "https://www.gstatic.com/generate_204"
+                # Xray's local SOCKS acknowledgement alone does not prove its
+                # outbound handshake worked. Require real traffic through it.
+                return (probe.socks5_http_reachable("127.0.0.1", listen, url, 6)
+                        and probe.socks5_reachable("127.0.0.1", listen, host, port, 5))
+            finally:
+                if created:
+                    delete_forward(root, rule)
+                    try:
+                        (directory(root) / "forwards" / rule["peer_rule_id"]).rmdir()
+                    except OSError:
+                        pass
+    except Exception:
+        return False  # A failed candidate must not interrupt other healthy routes.
+
+
+def cleanup_probes(root: Path) -> None:
+    """Recover private probes left behind if the console stopped mid-check."""
+    filters = json.dumps({"label": ["outlander.peer.instance=" + load(root)["instance"], "outlander.peer.probe=true"]})
+    status, raw = api("GET", "/containers/json?all=1&filters=" + urllib.parse.quote(filters))
+    if status != 200:
+        return
+    for item in json.loads(raw):
+        container_id = item.get("Id", "")
+        if not re.fullmatch(r"[a-f0-9]{64}", container_id):
+            continue
+        info = _owned(root, container_id)
+        labels = (info or {}).get("Config", {}).get("Labels", {})
+        if labels.get("outlander.peer.probe") != "true":
+            continue
+        result, _ = api("DELETE", f"/containers/{container_id}?force=1")
+        rule_id = labels.get("outlander.peer.probe_rule_id", "")
+        if result in {204, 404} and re.fullmatch(r"[a-f0-9]{12}", rule_id):
+            config = directory(root) / "forwards" / rule_id / "config.json"
+            config.unlink(missing_ok=True)
 
 
 def delete_server(root: Path, peer_id: str) -> None:
@@ -528,10 +592,14 @@ def start_worker(root: Path) -> None:
         if peer.get("status") == "working":
             _update(root, peer["id"], status="error", message="Interrupted; retry / عملیات قطع شده؛ دوباره تلاش کنید")
     def work():
+        try:
+            cleanup_probes(root)
+        except Exception:
+            pass
         while True:
             try:
                 for rule in forward.load(root)["rules"]:
-                    if rule.get("mode") == "peer" and rule.get("transport") == "ssh":
+                    if forward.effective_mode(rule) == "peer" and rule.get("transport") == "ssh":
                         try:
                             ensure_ssh(root, get(root, rule["peer_id"]))
                         except PeerError:

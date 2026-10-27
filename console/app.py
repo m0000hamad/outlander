@@ -94,7 +94,7 @@ def _safe_equal(left: str, right: str) -> bool:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "OutlanderConsole/1.3"
+    server_version = "OutlanderConsole/1.4"
     protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt: str, *args: object) -> None:
@@ -421,6 +421,9 @@ class Handler(BaseHTTPRequestHandler):
         return "/", message, level
 
     def _forwarding_add(self, form: dict[str, str]) -> tuple[str, str, str]:
+        if form.get("mode") == "auto":
+            summary = ops.add_auto_forward(form)
+            return "/forwarding", self._tr("flash.forward_added", summary=summary), "ok"
         if form.get("mode") == "peer":
             summary = ops.add_peer_forward(form)
             return "/forwarding", self._tr("flash.forward_added", summary=summary), "ok"
@@ -457,7 +460,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             index = -1
         rules = ops.forwarding()["rules"]
-        if 0 <= index < len(rules) and rules[index].get("mode") == "peer":
+        if 0 <= index < len(rules) and ops.forward.effective_mode(rules[index]) == "peer":
             ops.remove_peer_forward(index)
             return "/forwarding", self._tr("flash.forward_removed"), "ok"
         if not ops.remove_forward(index):

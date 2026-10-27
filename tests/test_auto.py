@@ -24,6 +24,8 @@ class DecideTests(unittest.TestCase):
             ops.probe, "tcp_reachable", return_value=direct
         ), mock.patch.object(ops.probe, "socks5_reachable", return_value=tunnel), mock.patch.object(
             ops, "_gateway", return_value=("127.0.0.1", 10808)
+        ), mock.patch.object(ops.probe, "socks5_http_reachable", return_value=tunnel), mock.patch.object(
+            ops, "_ready_peer_routes", return_value=[]
         ):
             return ops._decide({"target": "x.example:443"})
 

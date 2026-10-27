@@ -158,6 +158,8 @@ def _mode_label(rule: dict, lang: str) -> str:
             label = t(lang, "fw.mode_nft")
         elif resolved == "dokodemo":
             label = t(lang, "fw.mode_dokodemo")
+        elif resolved == "peer":
+            label = f"{rule.get('peer_name') or rule.get('peer_id', '')} · {str(rule.get('transport', '')).upper()}"
         else:
             label = t(lang, "fw.pending")
         label = t(lang, "fw.auto_path", path=label)
