@@ -31,13 +31,25 @@ say() { printf '\033[36m==>\033[0m %s\n' "$*"; }
 say "installing packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq ca-certificates curl jq nftables sqlite3 python3 openssl ufw unzip >/dev/null
+apt-get install -y -qq ca-certificates curl jq nftables sqlite3 python3 openssl ufw unzip make cron >/dev/null
 
 if ! command -v docker >/dev/null 2>&1; then
   say "installing docker"
-  curl -fsSL https://get.docker.com | sh
+  # Use Ubuntu packages: get.docker.com may return HTTP 403 on some hosts.
+  apt-get install -y docker.io docker-compose-v2
 fi
-systemctl enable --now docker >/dev/null 2>&1 || true
+if ! docker compose version >/dev/null 2>&1; then
+  say "installing Docker Compose v2"
+  if dpkg-query -W -f='${Status}' docker-ce 2>/dev/null | grep -q 'install ok installed'; then
+    apt-get install -y docker-compose-plugin
+  else
+    apt-get install -y docker-compose-v2
+  fi
+fi
+docker compose version >/dev/null
+systemctl enable --now docker
+# Fail before generating configuration if the daemon cannot start.
+docker info >/dev/null
 
 say "kernel tuning (bbr, fq, tcp_fastopen)"
 cat > /etc/sysctl.d/99-outlander.conf <<'EOF'
