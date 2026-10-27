@@ -15,10 +15,21 @@ Persian guide: [README.fa.md](README.fa.md)
 ## Install
 
 ```bash
-git clone https://github.com/m0000hamad/outlander.git outlander && cd outlander
-sudo bash scripts/install.sh
-make doctor
+(
+  set -e
+  if [ -d "$HOME/outlander/.git" ]; then
+    git -C "$HOME/outlander" pull --ff-only
+  else
+    git clone https://github.com/m0000hamad/outlander.git "$HOME/outlander"
+  fi
+  cd "$HOME/outlander"
+  sudo bash scripts/install.sh
+  make doctor
+)
 ```
+
+This command can be rerun from any directory. It updates an existing checkout in `~/outlander`, preserves local data, and stops if an update or installation fails. An unrelated non-empty directory is never overwritten.
+
 
 Then open the console at `http://<server>:8099`, log in with the printed credentials and paste your
 CDN link(s) into **outbounds**.
