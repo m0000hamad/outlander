@@ -45,6 +45,12 @@ services:
     container_name: ol-tunnel
     restart: unless-stopped
     network_mode: host
+    # The non-root image cannot bind requested forwarding ports below 1024
+    # in the host namespace. Grant only bind-service, not network administration.
+    user: "0:0"
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
     command: ["run", "-c", "/etc/xray/tunnel.json"]
     volumes:
       - ./config/xray:/etc/xray:ro

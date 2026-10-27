@@ -99,6 +99,9 @@ class PeerTests(unittest.TestCase):
         self.assertIn("outlander.peer.instance", script)
         self.assertLess(script.index("-test -c"), script.index("docker run -d"))
         self.assertIn("OUTLANDER_ERROR:port_busy", script)
+        privileged = peers.provision_script("a" * 12, "b" * 12, self.profile() | {"port": 443}, "reality")
+        self.assertIn("--cap-drop ALL --cap-add NET_BIND_SERVICE", privileged)
+        self.assertNotIn("--user 0:0", script)
 
     def test_refuses_foreign_container(self):
         self.add()

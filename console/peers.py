@@ -227,6 +227,7 @@ def provision_script(instance: str, peer_id: str, profile: dict, kind: str) -> s
     name = f"ol-peer-{instance}-{peer_id}-{kind}"
     folder = f"/etc/outlander-peers/{instance}/{peer_id}/{kind}"
     encoded = base64.b64encode(json.dumps(server_config(profile, kind)).encode()).decode()
+    bind_options = "--user 0:0 --cap-drop ALL --cap-add NET_BIND_SERVICE --security-opt no-new-privileges:true" if profile["port"] < 1024 else ""
     # Names/ports are generated or validated; configuration crosses the shell only as base64.
     return f'''set -eu
 test "$(id -u)" = 0 || {{ echo OUTLANDER_ERROR:root_required >&2; exit 1; }}
@@ -256,7 +257,7 @@ chmod 750 {folder}
 chmod 640 {folder}/candidate.json
 docker run --rm -v {folder}:/etc/xray:ro {IMAGE} -test -c /etc/xray/candidate.json
 mv {folder}/candidate.json {folder}/config.json
-docker run -d --name {name} --label outlander.peer.instance={instance} --network host \\
+docker run -d {bind_options} --name {name} --label outlander.peer.instance={instance} --network host \\
   --restart unless-stopped --log-opt max-size=5m --log-opt max-file=2 \\
   -v {folder}:/etc/xray:ro {IMAGE} run -c /etc/xray/config.json
 sleep 1
@@ -436,6 +437,10 @@ def create_forward(root: Path, rule: dict) -> None:
                  "HostConfig": {"NetworkMode": "host", "RestartPolicy": {"Name": "unless-stopped"},
                                 "Binds": [host_folder + ":/etc/xray:ro"],
                                 "LogConfig": {"Type": "json-file", "Config": {"max-size": "5m", "max-file": "2"}}}}
+    if int(rule["listen"]) < 1024:
+        container["User"] = "0:0"
+        container["HostConfig"].update(CapDrop=["ALL"], CapAdd=["NET_BIND_SERVICE"],
+                                     SecurityOpt=["no-new-privileges:true"])
     status, _ = api("POST", f"/containers/create?name={name}", container)
     if status != 201:
         raise PeerError("Could not create isolated forward / ساخت فوروارد مستقل ناموفق بود")

@@ -20,3 +20,11 @@
 - Include peer credentials/config in private backups; local uninstall removes only
   containers owned by the current installation. Remote removal remains explicit.
 - See [PEERS.md](docs/PEERS.md) for secure access, supported platforms and lifecycle.
+
+### Privileged forwarding ports
+
+Forwarding listeners may use ports below 1024. The original host-network Xray
+service now runs with only `NET_BIND_SERVICE` and `no-new-privileges`, with all
+other capabilities dropped. Managed local/remote listeners use that same limited
+configuration only when a privileged port is requested. This avoids the official
+non-root image restarting continuously when a user adds a port such as 80.
