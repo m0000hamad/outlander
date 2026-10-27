@@ -82,6 +82,7 @@ unless you pass `--purge-data`. Docker itself is never touched.
 - [docs/CDN.md](docs/CDN.md) - CDN fronting, origin lockdown, parameters
 - [docs/PROTOCOLS.md](docs/PROTOCOLS.md) - which protocol to use when
 - [docs/FORWARDING.md](docs/FORWARDING.md) - ports, IPs, SNI routing
+- [docs/PEERS.md](docs/PEERS.md) - manage peer servers and isolated SSH/REALITY/XHTTP port tunnels
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) - day-2 operations
 
 Use it in line with local law and your provider's terms.

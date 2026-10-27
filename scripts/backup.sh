@@ -13,11 +13,14 @@ mkdir -p backups
 STAMP="$(date +%Y%m%d-%H%M%S)"
 TARGET="backups/outlander-${STAMP}.tar.gz"
 
+PEER_DATA=()
+[[ ! -d data/peers ]] || PEER_DATA=(data/peers)
 tar -czf "$TARGET" \
   --warning=no-file-changed \
   .env \
   config \
   data/x-ui \
+  "${PEER_DATA[@]}" \
   certs \
   2>/dev/null || true
 

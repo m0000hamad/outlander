@@ -369,6 +369,39 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 }
 
 
+TRANSLATIONS["fa"].update({
+    "nav.peers": "سرورهای مقابل", "fw.mode_peer": "تونل به سرور مقابل",
+    "peer.title": "سرورهای مقابل", "peer.server": "سرور مقابل", "peer.transport": "نوع تونل",
+    "peer.manage": "تعریف و آماده‌سازی سرور", "peer.add": "افزودن سرور", "peer.name": "نام سرور",
+    "peer.address": "IP یا دامنه", "peer.ssh_port": "پورت SSH", "peer.user": "کاربر SSH",
+    "peer.password": "پسورد SSH", "peer.key": "کلید خصوصی SSH بدون رمز",
+    "peer.hint": "سرور را ثبت کنید، اتصال SSH را تست کنید و تونل مورد نظر را آماده کنید. سپس در فورواردینگ، سرور و نوع تونل را انتخاب کنید. سرویس‌های موجود جابه‌جا یا ری‌استارت نمی‌شوند.",
+    "peer.auth_hint": "فقط یکی از پسورد یا کلید خصوصی را وارد کنید. برای آماده‌سازی خودکار، کاربر root روی سرور Ubuntu یا Debian لازم است.",
+    "peer.trust": "کلید میزبان SSH در اولین اتصال ثبت می‌شود؛ در اتصال‌های بعدی تغییر کلید پذیرفته نمی‌شود. اطلاعات ورود فقط روی دیسک خصوصی سرور ذخیره می‌شوند و دوباره نمایش داده نمی‌شوند.",
+    "peer.secure": "ثبت اطلاعات ورود فقط از HTTPS یا تونل SSH محلی مجاز است؛ پسورد سرور را روی HTTP عمومی وارد نکنید.",
+    "peer.save": "ذخیرهٔ سرور", "peer.test": "تست اتصال SSH", "peer.prepare": "آماده‌سازی تونل",
+    "peer.tunnel_port": "پورت تونل روی سرور مقابل (اختیاری)", "peer.delete": "حذف اطلاعات سرور",
+    "peer.remove_tunnel": "حذف سرویس این تونل", "peer.empty": "هنوز سروری ثبت نشده است.",
+    "peer.saved": "سرور ذخیره شد. اکنون اتصال SSH را تست کنید.", "peer.started": "عملیات شروع شد؛ نتیجه در کارت سرور نمایش داده می‌شود.",
+    "peer.removed": "حذف انجام شد.",
+})
+TRANSLATIONS["en"].update({
+    "nav.peers": "Peer servers", "fw.mode_peer": "Managed peer tunnel", "peer.title": "Peer servers",
+    "peer.server": "Peer server", "peer.transport": "Tunnel type", "peer.manage": "Manage peer servers",
+    "peer.add": "Add server", "peer.name": "Server name", "peer.address": "IP or hostname", "peer.ssh_port": "SSH port",
+    "peer.user": "SSH user", "peer.password": "SSH password", "peer.key": "Unencrypted SSH private key",
+    "peer.hint": "Save a server, test SSH, then prepare a tunnel. Choose the server and tunnel when adding a forward. Existing services are not moved or restarted.",
+    "peer.auth_hint": "Enter either a password or a private key. Automatic setup requires root on an Ubuntu or Debian peer.",
+    "peer.trust": "SSH host keys are pinned on first connection; changed keys are rejected. Credentials are kept in private server files and never displayed again.",
+    "peer.secure": "Submit credentials only over HTTPS or a local SSH tunnel. Public plain HTTP submissions are blocked.",
+    "peer.save": "Save server", "peer.test": "Test SSH", "peer.prepare": "Prepare tunnel",
+    "peer.tunnel_port": "Remote tunnel port (optional)", "peer.delete": "Delete server credentials",
+    "peer.remove_tunnel": "Remove this tunnel service", "peer.empty": "No peer servers saved yet.",
+    "peer.saved": "Server saved. Test its SSH connection next.", "peer.started": "Operation started. Its result appears on the server card.",
+    "peer.removed": "Removed.",
+})
+
+
 def normalise(lang: str | None) -> str:
     value = (lang or "").strip().lower()
     return value if value in LANGS else DEFAULT_LANG

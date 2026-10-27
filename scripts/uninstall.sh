@@ -86,6 +86,15 @@ compose() {
 
 # --- containers, network, image ------------------------------------------
 if command -v docker >/dev/null 2>&1; then
+  # Only remove peer containers owned by this installation; remote hosts are untouched.
+  if [[ -f data/peers/servers.json ]]; then
+    peer_instance="$(python3 -c 'import json; print(json.load(open("data/peers/servers.json"))["instance"])')"
+    if [[ "$peer_instance" =~ ^[a-f0-9]{12}$ ]]; then
+      while read -r peer_container; do
+        [[ -z "$peer_container" ]] || docker rm -f "$peer_container" >/dev/null 2>&1 || true
+      done < <(docker ps -aq --filter "label=outlander.peer.instance=$peer_instance")
+    fi
+  fi
   say "stopping and removing containers"
   compose down --remove-orphans >/dev/null 2>&1 || true
   for name in ol-gateway ol-panel ol-console ol-singbox ol-haproxy; do

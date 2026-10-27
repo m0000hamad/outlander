@@ -6,6 +6,8 @@ import hashlib
 import hmac
 import os
 import secrets
+import ssl
+import ipaddress
 import sys
 import threading
 import time
@@ -13,7 +15,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import i18n, ops, ui
+from . import i18n, ops, ui, peers
 
 USER = os.environ.get("CONSOLE_USER", "admin")
 PORT = int(os.environ.get("CONSOLE_PORT", "8099"))
@@ -94,7 +96,7 @@ def _safe_equal(left: str, right: str) -> bool:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "OutlanderConsole/1.1"
+    server_version = "OutlanderConsole/1.2"
     protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt: str, *args: object) -> None:
@@ -166,7 +168,7 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urllib.parse.parse_qs(raw, keep_blank_values=True)
         return {key: values[0] for key, values in parsed.items()}
 
-    def _context(self, token: str, params: dict[str, list[str]]) -> dict:
+    def _context(self, token: str, params: dict[str, list[str]], include_panel: bool = True) -> dict:
         lang = self._lang()
         inventory = ops.inventory()
         channels = []
@@ -212,7 +214,7 @@ class Handler(BaseHTTPRequestHandler):
         cf = ops.cloudflare_settings()
         public_host = self._public_host()
         try:
-            proxies = ops.proxy_ports(public_host)
+            proxies = ops.proxy_ports(public_host) if include_panel else []
             proxy_error = ""
         except ops.OpError as exc:
             proxies = []
@@ -225,6 +227,7 @@ class Handler(BaseHTTPRequestHandler):
             "csrf": csrf_for(token),
             "channels": channels,
             "rules": forwarding.get("rules", []),
+            "peers": peers.public(ops.ROOT),
             "hop": forwarding.get("hop", {}),
             "proxy_ports": proxies,
             "proxy_host": public_host,
@@ -258,13 +261,15 @@ class Handler(BaseHTTPRequestHandler):
         token = self._session()
         if not token:
             return self._redirect("/login")
-        context = self._context(token, params)
+        context = self._context(token, params, include_panel=path != "/peers")
         if path == "/":
             return self._send(200, ui.dashboard(context))
         if path == "/outbounds":
             return self._send(200, ui.outbounds(context))
         if path == "/forwarding":
             return self._send(200, ui.forwarding(context))
+        if path == "/peers":
+            return self._send(200, ui.peer_servers(context))
         return self._send(404, ui.layout("404", "<h1>404</h1>", "/", "", self._lang()))
 
     def do_POST(self) -> None:  # noqa: N802 - http.server API
@@ -294,6 +299,11 @@ class Handler(BaseHTTPRequestHandler):
             )
 
         routes = {
+            "/peers/add": self._peers_add,
+            "/peers/test": self._peers_test,
+            "/peers/provision": self._peers_provision,
+            "/peers/remove-transport": self._peers_remove_transport,
+            "/peers/delete": self._peers_delete,
             "/outbounds/add": self._outbounds_add,
             "/outbounds/delete": self._outbounds_delete,
             "/outbounds/toggle": self._outbounds_toggle,
@@ -314,6 +324,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(404, "not found", "text/plain; charset=utf-8")
         try:
             target, message, level = handler(form)
+        except peers.PeerError as exc:
+            target, message, level = "/peers" if path.startswith("/peers/") else "/forwarding", str(exc), "err"
         except ops.OpError as exc:
             target, message, level = "/", i18n.t(self._lang(), exc.code, **exc.params), "err"
         except Exception as exc:  # noqa: BLE001 - surfaced in the UI
@@ -410,6 +422,9 @@ class Handler(BaseHTTPRequestHandler):
         return "/", message, level
 
     def _forwarding_add(self, form: dict[str, str]) -> tuple[str, str, str]:
+        if form.get("mode") == "peer":
+            summary = ops.add_peer_forward(form)
+            return "/forwarding", self._tr("flash.forward_added", summary=summary), "ok"
         summary = ops.add_forward(
             form.get("proto", "tcp"),
             form.get("listen_ip", ""),
@@ -434,6 +449,10 @@ class Handler(BaseHTTPRequestHandler):
             index = int(form.get("index", "-1"))
         except ValueError:
             index = -1
+        rules = ops.forwarding()["rules"]
+        if 0 <= index < len(rules) and rules[index].get("mode") == "peer":
+            ops.remove_peer_forward(index)
+            return "/forwarding", self._tr("flash.forward_removed"), "ok"
         if not ops.remove_forward(index):
             return "/forwarding", self._tr("flash.rule_missing"), "err"
         ops.render_all()
@@ -446,6 +465,29 @@ class Handler(BaseHTTPRequestHandler):
             message += f" ({tunnel_detail})"
         ops.remember("apply", message)
         return "/forwarding", message, "ok" if tunnel_ok else "err"
+
+    def _peers_add(self, form: dict[str, str]) -> tuple[str, str, str]:
+        if not (isinstance(self.connection, ssl.SSLSocket) or ipaddress.ip_address(self.client_address[0]).is_loopback):
+            raise peers.PeerError(self._tr("peer.secure"))
+        peers.save_server(ops.ROOT, form)
+        return "/peers", self._tr("peer.saved"), "ok"
+
+    def _peers_test(self, form: dict[str, str]) -> tuple[str, str, str]:
+        peers.start_job(ops.ROOT, form.get("peer_id", ""), "test")
+        return "/peers", self._tr("peer.started"), "ok"
+
+    def _peers_provision(self, form: dict[str, str]) -> tuple[str, str, str]:
+        peers.start_job(ops.ROOT, form.get("peer_id", ""), "provision", kind=form.get("transport", ""),
+                        port=form.get("tunnel_port", ""), sni=form.get("sni", ""))
+        return "/peers", self._tr("peer.started"), "ok"
+
+    def _peers_remove_transport(self, form: dict[str, str]) -> tuple[str, str, str]:
+        peers.remove_transport(ops.ROOT, form.get("peer_id", ""), form.get("transport", ""))
+        return "/peers", self._tr("peer.removed"), "ok"
+
+    def _peers_delete(self, form: dict[str, str]) -> tuple[str, str, str]:
+        peers.delete_server(ops.ROOT, form.get("peer_id", ""))
+        return "/peers", self._tr("peer.removed"), "ok"
 
     def _forwarding_hop(self, form: dict[str, str]) -> tuple[str, str, str]:
         ops.save_hop(
@@ -547,6 +589,7 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> int:
     password()
     ops.start_auto_worker()
+    peers.start_worker(ops.ROOT)
     server = ThreadingHTTPServer((BIND, PORT), Handler)
     server.daemon_threads = True
     print(f"[console] listening on http://{BIND}:{PORT} user={USER}", flush=True)

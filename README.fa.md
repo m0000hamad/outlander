@@ -161,6 +161,8 @@ python3 -m outlander forward render && sudo bash scripts/forward-apply.sh
 
 جزئیات: [docs/FORWARDING.md](docs/FORWARDING.md)
 
+در بخش **سرورهای مقابل** می‌توانید سرور دوم را با پسورد یا کلید SSH ثبت کنید و تونل SSH، REALITY یا XHTTP را خودکار آماده کنید. سپس در فورواردینگ، حالت «تونل به سرور مقابل» را انتخاب کنید. تونل‌های جدید از سرویس‌های قبلی جدا هستند. راهنما: [docs/PEERS.md](docs/PEERS.md).
+
 ---
 
 ## ۷) Hysteria2 و سرتیفیکیت

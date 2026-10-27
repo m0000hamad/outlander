@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import http.client
+import functools
 import json
 import os
 import secrets
@@ -20,11 +21,21 @@ if str(ROOT) not in sys.path:
 
 from outlander import certs, forward, inbounds, panel, probe, render, tunnel  # noqa: E402
 from outlander.uri import LinkError, parse  # noqa: E402
+from . import peers
 
 DOCKER_SOCK = os.environ.get("DOCKER_SOCK", "/var/run/docker.sock")
 STATE_FILE = Path(os.environ.get("CONSOLE_STATE", "/data/state.json"))
 HOST_UID = int(os.environ.get("HOST_UID", "0") or 0)
 HOST_GID = int(os.environ.get("HOST_GID", "0") or 0)
+_FORWARD_LOCK = threading.RLock()
+
+
+def forward_transaction(function):
+    @functools.wraps(function)
+    def locked(*args, **kwargs):
+        with _FORWARD_LOCK:
+            return function(*args, **kwargs)
+    return locked
 
 SERVICES = {
     "gateway": "ol-gateway",
@@ -60,12 +71,13 @@ class _UnixConnection(http.client.HTTPConnection):
         self.sock = sock
 
 
-def _docker(method: str, path: str) -> tuple[int, bytes]:
+def _docker(method: str, path: str, payload: dict | None = None) -> tuple[int, bytes]:
     if not Path(DOCKER_SOCK).exists():
         raise DockerUnavailable("docker socket is not mounted")
     connection = _UnixConnection(DOCKER_SOCK)
     try:
-        connection.request(method, path)
+        body = json.dumps(payload).encode() if payload is not None else None
+        connection.request(method, path, body=body, headers={"Content-Type": "application/json"} if body else {})
         response = connection.getresponse()
         return response.status, response.read()
     except OSError as exc:
@@ -142,6 +154,7 @@ def forwarding() -> dict:
     return forward.load(ROOT)
 
 
+@forward_transaction
 def render_all() -> None:
     paths = render.render(ROOT)
     nft = forward.render(ROOT)
@@ -269,6 +282,7 @@ def apply_tunnel() -> tuple[bool, str]:
     return True, "tunnel reloaded"
 
 
+@forward_transaction
 def add_forward(proto: str, listen_ip: str, listen: str, target: str, mode: str = "nft") -> str:
     data = forward.load(ROOT)
     try:
@@ -304,6 +318,7 @@ def add_forward(proto: str, listen_ip: str, listen: str, target: str, mode: str 
     return f"{rule['proto']}/{rule['listen']} -> {rule['target']} [{path}]"
 
 
+@forward_transaction
 def remove_forward(index: int) -> bool:
     data = forward.load(ROOT)
     if not 0 <= index < len(data["rules"]):
@@ -313,6 +328,62 @@ def remove_forward(index: int) -> bool:
     return True
 
 
+@forward_transaction
+def add_peer_forward(form: dict[str, str]) -> str:
+    """Deploy a new isolated listener without restarting any legacy service."""
+    data = forward.load(ROOT)
+    rule = forward.normalise_rule({"mode": "peer", "proto": form.get("proto", "tcp"),
+        "listen": form.get("listen", ""), "listen_ip": form.get("listen_ip", ""),
+        "target": form.get("target", ""), "peer_id": form.get("peer_id", ""),
+        "transport": form.get("transport", ""), "peer_rule_id": secrets.token_hex(6)})
+    port = int(rule["listen"])
+    for existing in data["rules"]:
+        if existing.get("proto", "tcp") != rule["proto"] and "both" not in {existing.get("proto", "tcp"), rule["proto"]}:
+            continue
+        existing_port = str(existing["listen"])
+        low, _, high = existing_port.partition("-")
+        if existing_port == "*" or (low.isdigit() and int(low) <= port <= int(high or low)):
+            raise peers.PeerError("Listen port overlaps an existing forward / پورت با فوروارد موجود تداخل دارد")
+    hop = data.get("hop", {})
+    if hop.get("enabled") and rule["proto"] in {"udp", "both"} and hop.get("proto", "udp") == "udp":
+        low, _, high = str(hop.get("range", "")).partition("-")
+        if low.isdigit() and high.isdigit() and int(low) <= port <= int(high):
+            raise peers.PeerError("UDP listen port overlaps port hopping / پورت UDP با پورت‌هاپینگ تداخل دارد")
+    if forward.find_duplicate(data["rules"], rule) or forward.conflicting_ports(rule):
+        raise peers.PeerError("Listen port is already in use / پورت ورودی در حال استفاده است")
+    peers.create_forward(ROOT, rule)
+    try:
+        data["rules"].append(rule)
+        forward.save(ROOT, data)
+        forward.render(ROOT)
+        ok, detail = apply_forwarding()
+        if not ok:
+            raise peers.PeerError("Could not apply forwarding rules / اعمال قوانین فوروارد ناموفق بود")
+    except Exception:
+        peers.delete_forward(ROOT, rule)
+        data["rules"] = [r for r in data["rules"] if r.get("peer_rule_id") != rule["peer_rule_id"]]
+        forward.save(ROOT, data)
+        forward.render(ROOT)
+        apply_forwarding()
+        raise
+    return f"{rule['listen']} → {rule['target']} ({peers.KINDS[rule['transport']]})"
+
+
+@forward_transaction
+def remove_peer_forward(index: int) -> None:
+    data = forward.load(ROOT)
+    if not 0 <= index < len(data["rules"]) or data["rules"][index].get("mode") != "peer":
+        raise peers.PeerError("Managed forward not found / فوروارد مدیریت‌شده پیدا نشد")
+    peers.delete_forward(ROOT, data["rules"][index])
+    data["rules"].pop(index)
+    forward.save(ROOT, data)
+    forward.render(ROOT)
+    ok, detail = apply_forwarding()
+    if not ok:
+        raise peers.PeerError("Forward removed, but firewall apply failed / فوروارد حذف شد؛ اعمال فایروال ناموفق بود")
+
+
+@forward_transaction
 def reconcile_forwards() -> str:
     """Re-evaluate auto rules and switch direct <-> tunnel when the path changes."""
     data = forward.load(ROOT)
@@ -370,6 +441,7 @@ def _auto_loop(interval: int) -> None:
         time.sleep(interval)
 
 
+@forward_transaction
 def save_hop(enabled: bool, proto: str, port_range: str, target: str) -> None:
     data = forward.load(ROOT)
     hop = data.get("hop") or {}

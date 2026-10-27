@@ -15,6 +15,7 @@ STYLE = f"""
   --muted:#8b96a9;--accent:#5b8cff;--ok:#35c07e;--warn:#e0a13a;--bad:#ef5f5f;
 }}
 *{{box-sizing:border-box}}
+[hidden]{{display:none!important}}
 body{{margin:0;background:radial-gradient(1100px 520px at 85% -10%,#17263e 0,var(--bg) 58%);
   color:var(--text);font:14px/1.65 {FONT};min-height:100vh}}
 a{{color:var(--accent);text-decoration:none}}
@@ -86,6 +87,7 @@ def _nav(active: str, lang: str) -> str:
         ("/", t(lang, "nav.dashboard")),
         ("/outbounds", t(lang, "nav.outbounds")),
         ("/forwarding", t(lang, "nav.forwarding")),
+        ("/peers", t(lang, "nav.peers")),
     ]
     links = "".join(
         f'<a class="{"on" if path == active else ""}" href="{path}">{esc(label)}</a>' for path, label in items
@@ -146,6 +148,8 @@ def csrf_input(token: str) -> str:
 
 def _mode_label(rule: dict, lang: str) -> str:
     mode = rule.get("mode") or "nft"
+    if mode == "peer":
+        return f"{t(lang, 'fw.mode_peer')} · {rule.get('transport', '')}"
     resolved = str(rule.get("resolved") or "")
     error = str(rule.get("last_error") or "")
     if mode == "auto":
@@ -380,6 +384,10 @@ def forwarding(ctx: dict) -> str:
         "</div>"
     )
 
+    peer_options = '<option value="">—</option>' + "".join(
+        f'<option value="{esc(peer["id"])}" data-transports="{esc(",".join(k for k,p in peer.get("transports", {}).items() if p.get("status") == "ready"))}">{esc(peer["name"])} · {esc(peer["host"])}</option>'
+        for peer in ctx.get("peers", []) if any(p.get("status") == "ready" for p in peer.get("transports", {}).values())
+    )
     add_card = (
         f'<div class="card"><h2>{esc(t(lang, "fw.add_title"))}</h2>'
         f'<p>{esc(t(lang, "fw.hint"))}</p>'
@@ -391,12 +399,27 @@ def forwarding(ctx: dict) -> str:
         f'<div class="field"><label>{esc(t(lang, "fw.mode"))}</label><select name="mode">'
         f'<option value="auto">{esc(t(lang, "fw.mode_auto"))}</option>'
         f'<option value="nft">{esc(t(lang, "fw.mode_nft"))}</option>'
-        f'<option value="dokodemo">{esc(t(lang, "fw.mode_dokodemo"))}</option></select></div>'
+        f'<option value="dokodemo">{esc(t(lang, "fw.mode_dokodemo"))}</option>'
+        f'<option value="peer">{esc(t(lang, "fw.mode_peer"))}</option></select></div>'
         f'<div class="field"><label>{esc(t(lang, "common.listen_ip"))}</label><input name="listen_ip" placeholder="203.0.113.5" class="mono"></div>'
         f'<div class="field"><label>{esc(t(lang, "fw.listen_port"))}</label><input name="listen" placeholder="443 / 50000-50100 / *" class="mono" required></div>'
         f'<div class="field"><label>{esc(t(lang, "common.target"))}</label><input name="target" placeholder="10.0.0.5:443" class="mono" required></div></div>'
+        f'<div class="row peer-fields" style="margin-bottom:12px" hidden><div class="field"><label for="forward-peer">{esc(t(lang, "peer.server"))}</label>'
+        f'<select id="forward-peer" name="peer_id">{peer_options}</select></div>'
+        f'<div class="field"><label for="forward-transport">{esc(t(lang, "peer.transport"))}</label><select id="forward-transport" name="transport">'
+        '<option value="reality">REALITY</option><option value="xhttp">XHTTP + REALITY</option><option value="ssh">SSH (TCP)</option></select></div>'
+        f'<a href="/peers">{esc(t(lang, "peer.manage"))}</a></div>'
         f'<p class="tiny muted" style="margin:-2px 0 10px">{esc(t(lang, "fw.auto_note"))}</p>'
         f'<button class="btn" type="submit">{esc(t(lang, "fw.add_apply"))}</button></form></div>'
+        '<script>const mode=document.querySelector("select[name=mode]");'
+        'const peerFields=document.querySelector(".peer-fields");'
+        'const peerSelect=document.getElementById("forward-peer");const transportSelect=document.getElementById("forward-transport");'
+        'function peerTransports(){const kinds=(peerSelect.selectedOptions[0]?.dataset.transports||"").split(",");'
+        'for(const option of transportSelect.options){option.disabled=!kinds.includes(option.value)}'
+        'if(transportSelect.selectedOptions[0]?.disabled){const first=[...transportSelect.options].find(o=>!o.disabled);if(first)transportSelect.value=first.value}}'
+        'function peerMode(){peerFields.hidden=mode.value!=="peer";'
+        'document.getElementById("forward-peer").required=mode.value==="peer";}'
+        'mode.addEventListener("change",peerMode);peerSelect.addEventListener("change",peerTransports);peerMode();peerTransports();</script>'
     )
 
     if ctx["rules"]:
@@ -437,6 +460,47 @@ def forwarding(ctx: dict) -> str:
         f'{proxy_card}{cf_card}<div style="height:14px"></div>{add_card}<div style="height:14px"></div>{hop_card}{table}'
     )
     return layout(t(lang, "fw.title"), body, "/forwarding", ctx["flash"], lang)
+
+
+def peer_servers(ctx: dict) -> str:
+    lang = ctx["lang"]
+    label = lambda key: esc(t(lang, "peer." + key))
+    csrf = csrf_input(ctx["csrf"])
+    body = f'<h1>{label("title")}</h1><p class="sub">{label("hint")}</p>'
+    body += (f'<div class="card"><h2>{label("add")}</h2><form method="post" action="/peers/add" autocomplete="off">{csrf}'
+        f'<div class="row"><div class="field"><label for="peer-name">{label("name")}</label><input id="peer-name" name="name" maxlength="80" required></div>'
+        f'<div class="field"><label for="peer-host">{label("address")}</label><input id="peer-host" class="mono" name="host" required placeholder="203.0.113.10"></div>'
+        f'<div class="field"><label for="peer-port">{label("ssh_port")}</label><input id="peer-port" class="mono" name="ssh_port" type="number" min="1" max="65535" value="22" required></div>'
+        f'<div class="field"><label for="peer-user">{label("user")}</label><input id="peer-user" class="mono" name="username" value="root" required></div></div>'
+        f'<p style="margin-top:12px">{label("auth_hint")}</p><div class="row">'
+        f'<div class="field"><label for="peer-password">{label("password")}</label><input id="peer-password" name="password" type="password" autocomplete="new-password" maxlength="4096"></div>'
+        f'<div class="field"><label for="peer-key">{label("key")}</label><textarea id="peer-key" name="private_key" spellcheck="false" maxlength="32768" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea></div></div>'
+        f'<p class="tiny">{label("trust")}</p><p class="tiny">{label("secure")}</p>'
+        f'<button class="btn" type="submit">{label("save")}</button></form></div>')
+    if not ctx.get("peers"):
+        body += f'<div class="card" style="margin-top:14px"><p>{label("empty")}</p></div>'
+    for peer in ctx.get("peers", []):
+        peer_id = f'<input type="hidden" name="peer_id" value="{esc(peer["id"])}">'
+        body += (f'<section class="card" style="margin-top:14px"><h2>{esc(peer["name"])}</h2>'
+            f'<p class="mono">{esc(peer["username"])}@{esc(peer["host"])}:{esc(peer["ssh_port"])}</p>'
+            f'<p>{esc(peer.get("status", "saved"))} · {esc(peer.get("message", ""))}</p>'
+            f'<p class="mono tiny">{esc(peer.get("fingerprint", ""))}</p><div class="row">'
+            f'<form method="post" action="/peers/test">{csrf}{peer_id}<button class="btn ghost" type="submit">{label("test")}</button></form>'
+            f'<form method="post" action="/peers/delete">{csrf}{peer_id}<button class="btn danger" type="submit">{label("delete")}</button></form></div>'
+            f'<form method="post" action="/peers/provision" style="margin-top:14px">{csrf}{peer_id}<div class="row">'
+            f'<div class="field"><label>{label("transport")}</label><select name="transport"><option value="reality">VLESS + REALITY</option>'
+            '<option value="xhttp">VLESS + XHTTP + REALITY</option><option value="ssh">SSH (TCP)</option></select></div>'
+            f'<div class="field"><label>{label("tunnel_port")}</label><input class="mono" type="number" name="tunnel_port" min="1" max="65535" placeholder="24443 / 24444"></div>'
+            f'<div class="field"><label>SNI</label><input class="mono" name="sni" placeholder="www.microsoft.com"></div>'
+            f'<button class="btn" type="submit">{label("prepare")}</button></div></form>')
+        for kind, profile in peer.get("transports", {}).items():
+            body += (f'<div class="row" style="margin-top:12px"><span class="mono">{esc(kind)} · {esc(profile.get("status"))}'
+                f' · {esc(profile.get("port", ""))}</span><form method="post" action="/peers/remove-transport">{csrf}{peer_id}'
+                f'<input type="hidden" name="transport" value="{esc(kind)}"><button class="btn danger sm" type="submit">{label("remove_tunnel")}</button></form></div>')
+        body += '</section>'
+    if any(peer.get("status") == "working" for peer in ctx.get("peers", [])):
+        body += '<script>setTimeout(()=>{if(!document.querySelector("input:focus,textarea:focus,select:focus"))location.reload()},5000)</script>'
+    return layout(t(lang, "peer.title"), body, "/peers", ctx.get("flash", ""), lang)
 
 
 def login(error: str = "", lang: str = "fa") -> str:

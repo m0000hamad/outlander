@@ -28,7 +28,7 @@ PORT_RE = re.compile(r"^\d{1,5}(-\d{1,5})?$")
 IP_RE = re.compile(r"^[0-9a-fA-F:.]{2,45}$")
 TARGET_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.\-]{0,252}(:\d{1,5})?$")
 PROTOS = {"tcp", "udp", "both"}
-MODES = {"auto", "nft", "dokodemo"}
+MODES = {"auto", "nft", "dokodemo", "peer"}
 
 
 def load(root: Path) -> dict:
@@ -109,7 +109,7 @@ def normalise_rule(rule: dict) -> dict:
         raise ValueError("proto must be tcp, udp or both")
     mode = (rule.get("mode") or "nft").strip().lower()
     if mode not in MODES:
-        raise ValueError("mode must be auto, nft or dokodemo")
+        raise ValueError("mode must be auto, nft, dokodemo or peer")
     listen = str(rule.get("listen") if rule.get("listen") is not None else rule.get("listen_port") or "").strip()
     if listen != "*" and not PORT_RE.match(listen):
         raise ValueError("listen must be a port, a range like 50000-50100, or *")
@@ -127,14 +127,14 @@ def normalise_rule(rule: dict) -> dict:
     target = _target(rule.get("target") or "")
     if listen == "*" and ":" in target:
         raise ValueError("forwarding every port cannot change the port; drop the target port")
-    if mode == "dokodemo":
+    if mode in {"dokodemo", "peer"}:
         if listen_ip:
             raise ValueError("dokodemo listens on all addresses; drop listen_ip")
         if not listen.isdigit():
             raise ValueError("dokodemo needs a single listen port, not a range")
         if ":" not in target:
             raise ValueError("dokodemo needs a target with a port")
-    return {
+    result = {
         "proto": proto,
         "listen": listen,
         "listen_ip": listen_ip,
@@ -145,6 +145,19 @@ def normalise_rule(rule: dict) -> dict:
         "last_error": str(rule.get("last_error") or ""),
         "checked_at": str(rule.get("checked_at") or ""),
     }
+    if mode == "peer":
+        for key in ("peer_id", "peer_rule_id"):
+            value = str(rule.get(key) or "")
+            if not re.fullmatch(r"[a-f0-9]{12}", value):
+                raise ValueError("invalid managed server/rule identifier")
+            result[key] = value
+        transport = str(rule.get("transport") or "")
+        if transport not in {"ssh", "reality", "xhttp"}:
+            raise ValueError("invalid managed tunnel type")
+        if transport == "ssh" and proto != "tcp":
+            raise ValueError("SSH forwarding supports TCP only")
+        result["transport"] = transport
+    return result
 
 
 def effective_mode(rule: dict) -> str:
@@ -300,7 +313,7 @@ def nft_text(data: dict) -> str:
         int(rule["listen"])
         for raw in data.get("rules", [])
         if (rule := normalise_rule(raw))["proto"] in {"tcp", "both"}
-        and effective_mode(rule) == "dokodemo" and rule["listen"].isdigit()
+        and effective_mode(rule) in {"dokodemo", "peer"} and rule["listen"].isdigit()
     })
     syn_mss = "tcp flags & (syn | rst) == syn tcp option maxseg size > 1200 tcp option maxseg size set 1200"
     lines += [
