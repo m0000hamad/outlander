@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import http.client
 import functools
+import copy
 import json
 import os
 import secrets
@@ -381,6 +382,134 @@ def remove_peer_forward(index: int) -> None:
     ok, detail = apply_forwarding()
     if not ok:
         raise peers.PeerError("Forward removed, but firewall apply failed / فوروارد حذف شد؛ اعمال فایروال ناموفق بود")
+
+
+def _edited_rule(old: dict, form: dict[str, str]) -> dict:
+    raw = {key: form.get(key, "") for key in ("proto", "listen", "listen_ip", "target", "mode")}
+    if raw["mode"] == "peer":
+        raw.update(peer_id=form.get("peer_id", ""), transport=form.get("transport", ""),
+                   peer_rule_id=old.get("peer_rule_id") or secrets.token_hex(6))
+    rule = forward.normalise_rule(raw)
+    if rule["mode"] == "peer":
+        profile = peers.get(ROOT, rule["peer_id"]).get("transports", {}).get(rule["transport"], {})
+        if profile.get("status") != "ready":
+            raise peers.PeerError("Prepare this tunnel on the server first / ابتدا این تونل را روی سرور آماده کنید")
+        rule["resolved"] = "peer"
+    elif rule["mode"] == "auto" and rule["listen"].isdigit():
+        if rule["listen_ip"] or ":" not in rule["target"]:
+            raise peers.PeerError("Auto needs a target port and an empty listen IP / اتو به پورت مقصد و IP ورودی خالی نیاز دارد")
+        decision, detail = _decide(rule)
+        if not decision:
+            raise peers.PeerError("Neither path is reachable; previous rule unchanged / هیچ مسیر سالمی پیدا نشد؛ قانون قبلی تغییر نکرد")
+        rule.update(resolved=decision, last_error=detail, checked_at=_now())
+    else:
+        rule["resolved"] = "dokodemo" if rule["mode"] == "dokodemo" else "nft"
+    return rule
+
+
+def _validate_edit_ports(old: dict, rule: dict, others: list[dict], hop: dict) -> None:
+    def bounds(value):
+        value = str(value)
+        if value == "*":
+            return 1, 65535
+        low, _, high = value.partition("-")
+        return int(low), int(high or low)
+    def protocols(value):
+        return {"tcp", "udp"} if value == "both" else {value or "tcp"}
+    low, high = bounds(rule["listen"])
+    for other in others:
+        if not protocols(rule["proto"]) & protocols(other.get("proto")):
+            continue
+        if rule["listen_ip"] and other.get("listen_ip") and rule["listen_ip"] != other["listen_ip"]:
+            continue
+        first, last = bounds(other["listen"])
+        if max(low, first) <= min(high, last):
+            raise peers.PeerError("Listen port overlaps another rule / پورت با قانون دیگری تداخل دارد")
+    if hop.get("enabled") and protocols(rule["proto"]) & protocols(hop.get("proto", "udp")):
+        first, last = bounds(hop["range"])
+        if max(low, first) <= min(high, last):
+            raise peers.PeerError("Listen port overlaps port hopping / پورت با پورت‌هاپینگ تداخل دارد")
+    if "tcp" in protocols(rule["proto"]):
+        busy = forward.conflicting_ports(rule)
+        # The listener being replaced is ours; every other occupied port is an error.
+        if forward.effective_mode(old) in {"dokodemo", "peer"} and "tcp" in protocols(old.get("proto")):
+            first, last = bounds(old["listen"])
+            busy = [port for port in busy if not first <= port <= last]
+        if busy:
+            raise peers.PeerError("Listen port is already in use / پورت ورودی در حال استفاده است")
+
+
+def _reload_legacy_checked(data: dict, env_values: dict) -> None:
+    ok, detail = apply_tunnel()
+    if not ok:
+        raise peers.PeerError("Could not apply tunnel configuration / اعمال تنظیمات تونل ناموفق بود")
+    expected = {item["port"] for item in tunnel.config(data, env_values)["inbounds"]
+                if "tcp" in item["settings"]["network"]}
+    for _ in range(40):
+        state = container_state("tunnel")["state"]
+        if state == "running" and expected <= forward.listening_ports():
+            return
+        if not expected and state == "missing":
+            return
+        time.sleep(0.1)
+    raise peers.PeerError("Tunnel listener did not start / پورت تونل شروع نشد")
+
+
+@forward_transaction
+def update_forward(index: int, token: str, form: dict[str, str]) -> str:
+    original = forward.load(ROOT)
+    if not 0 <= index < len(original["rules"]):
+        raise peers.PeerError("Rule no longer exists; refresh / قانون حذف شده؛ صفحه را تازه کنید")
+    old = original["rules"][index]
+    if not token or not secrets.compare_digest(token, forward.edit_token(old)):
+        raise peers.PeerError("Rule changed; refresh before editing / قانون تغییر کرده؛ صفحه را تازه کنید")
+    rule = _edited_rule(old, form)
+    if forward.edit_token(rule) == forward.edit_token(old):
+        return f"{rule['listen']} → {rule['target']}"
+    _validate_edit_ports(old, rule, original["rules"][:index] + original["rules"][index + 1:], original.get("hop", {}))
+    candidate = copy.deepcopy(original)
+    candidate["rules"][index] = rule
+    env_values = env()
+    legacy_changed = tunnel.config(original, env_values) != tunnel.config(candidate, env_values)
+    old_peer_removed = new_peer_created = legacy_touched = False
+    try:
+        forward.save(ROOT, candidate)
+        forward.render(ROOT)
+        if old.get("mode") == "peer":
+            peers.delete_forward(ROOT, old)
+            old_peer_removed = True
+        if legacy_changed:
+            legacy_touched = True
+            _reload_legacy_checked(candidate, env_values)
+        if rule["mode"] == "peer":
+            peers.create_forward(ROOT, rule)
+            new_peer_created = True
+        ok, detail = apply_forwarding()
+        if not ok:
+            raise peers.PeerError("Could not apply forwarding rules / اعمال قوانین فوروارد ناموفق بود")
+    except Exception as error:
+        rollback_errors = []
+        def restore(operation):
+            try:
+                operation()
+            except Exception:
+                rollback_errors.append(True)
+        if new_peer_created:
+            restore(lambda: peers.delete_forward(ROOT, rule))
+        restore(lambda: forward.save(ROOT, original))
+        restore(lambda: forward.render(ROOT))
+        if legacy_touched:
+            restore(lambda: _reload_legacy_checked(original, env_values))
+        if old_peer_removed:
+            restore(lambda: peers.create_forward(ROOT, old))
+        def restore_firewall():
+            if not apply_forwarding()[0]:
+                raise RuntimeError("restore firewall failed")
+        restore(restore_firewall)
+        if rollback_errors:
+            raise peers.PeerError("Update failed; recovery needs attention / ویرایش ناموفق؛ بازیابی نیاز به بررسی دارد") from error
+        raise peers.PeerError("Update failed; previous rule restored / ویرایش ناموفق؛ قانون قبلی بازیابی شد") from error
+    return f"{rule['proto']}/{rule['listen']} → {rule['target']} ({rule['mode']})"
 
 
 @forward_transaction

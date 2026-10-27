@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+from outlander.forward import edit_token
 
 from .i18n import direction, normalise, t
 
@@ -293,6 +294,39 @@ def outbounds(ctx: dict) -> str:
     return layout(t(lang, "ob.title"), body, "/outbounds", ctx["flash"], lang)
 
 
+def rule_editor(ctx: dict, index: int, rule: dict) -> str:
+    lang = ctx["lang"]
+    prefix = f"rule-edit-{index}"
+    def select(name, label, options, selected):
+        choices = "".join(f'<option value="{esc(value)}" {"selected" if value == selected else ""}>{esc(title)}</option>'
+                          for value, title in options)
+        return f'<div class="field"><label for="{prefix}-{name}">{esc(label)}</label><select id="{prefix}-{name}" name="{name}">{choices}</select></div>'
+    modes = [(key, t(lang, "fw.mode_" + key)) for key in ("auto", "nft", "dokodemo", "peer")]
+    body = (f'<form class="rule-editor" method="post" action="/forwarding/update">{csrf_input(ctx["csrf"])}'
+            f'<input type="hidden" name="index" value="{index}">'
+            f'<input type="hidden" name="rule_token" value="{edit_token(rule)}">'
+            '<div class="row">'
+            + select("proto", t(lang, "common.protocol"), [(p, p) for p in ("tcp", "udp", "both")], rule.get("proto", "tcp"))
+            + select("mode", t(lang, "fw.mode"), modes, rule.get("mode") or "nft"))
+    for name, label in (("listen_ip", "common.listen_ip"), ("listen", "fw.listen_port"), ("target", "common.target")):
+        body += (f'<div class="field"><label for="{prefix}-{name}">{esc(t(lang, label))}</label>'
+                 f'<input id="{prefix}-{name}" name="{name}" class="mono" value="{esc(rule.get(name, ""))}"'
+                 f'{" required" if name != "listen_ip" else ""}></div>')
+    body += '</div><div class="row edit-peer-fields" style="margin-top:10px">'
+    options = '<option value="">—</option>'
+    for peer in ctx.get("peers", []):
+        kinds = ",".join(k for k, p in peer.get("transports", {}).items() if p.get("status") == "ready")
+        options += (f'<option value="{esc(peer["id"])}" data-transports="{esc(kinds)}"'
+                    f'{" selected" if peer["id"] == rule.get("peer_id") else ""}>{esc(peer["name"])} · {esc(peer["host"])}</option>')
+    body += (f'<div class="field"><label for="{prefix}-peer_id">{esc(t(lang, "peer.server"))}</label>'
+             f'<select id="{prefix}-peer_id" name="peer_id">{options}</select></div>'
+             + select("transport", t(lang, "peer.transport"), [("reality", "REALITY"), ("xhttp", "XHTTP + REALITY"), ("ssh", "SSH (TCP)")], rule.get("transport", "reality")))
+    body += (f'</div><div class="row" style="margin-top:12px"><button class="btn ok" type="submit">{esc(t(lang, "fw.save_edit"))}</button>'
+             f'<button class="btn ghost" type="button" onclick="this.form.reset();this.form.elements.mode.dispatchEvent(new Event(\'change\'));document.getElementById(\'{prefix}\').hidden=true">{esc(t(lang, "fw.cancel"))}</button>'
+             f'<span class="tiny muted">{esc(t(lang, "fw.edit_note"))}</span></div></form>')
+    return f'<tr id="{prefix}" hidden><td colspan="6">{body}</td></tr>'
+
+
 def forwarding(ctx: dict) -> str:
     lang = normalise(ctx.get("lang", "fa"))
     hop = ctx["hop"]
@@ -432,10 +466,12 @@ def forwarding(ctx: dict) -> str:
                 f'<td class="mono tiny">{esc(rule.get("listen_ip") or t(lang, "common.all"))}</td>'
                 f'<td class="mono tiny">{esc(rule.get("listen"))}</td>'
                 f'<td class="mono tiny">{esc(rule.get("target"))}</td>'
-                '<td><form method="post" action="/forwarding/delete" style="margin:0" '
+                f'<td><div class="row"><button class="btn ghost sm" type="button" onclick="document.getElementById(\'rule-edit-{index}\').hidden=false">{esc(t(lang, "fw.edit"))}</button>'
+                '<form method="post" action="/forwarding/delete" style="margin:0" '
                 f"onsubmit=\"return confirm('{esc(t(lang, 'fw.delete_confirm'))}')\">"
                 f'{csrf_input(ctx["csrf"])}<input type="hidden" name="index" value="{index}">'
-                f'<button class="btn danger sm" type="submit">{esc(t(lang, "common.delete"))}</button></form></td></tr>'
+                f'<button class="btn danger sm" type="submit">{esc(t(lang, "common.delete"))}</button></form></div></td></tr>'
+                + rule_editor(ctx, index, rule)
             )
         table = (
             f'<div class="card" style="margin-top:14px"><h2>{esc(t(lang, "fw.table_title"))}</h2>'
@@ -458,6 +494,15 @@ def forwarding(ctx: dict) -> str:
         f"<h1>{esc(t(lang, 'fw.title'))}</h1>"
         f'<p class="sub">{esc(t(lang, "fw.subtitle"))}</p>'
         f'{proxy_card}{cf_card}<div style="height:14px"></div>{add_card}<div style="height:14px"></div>{hop_card}{table}'
+        '<script>document.querySelectorAll("form.rule-editor").forEach(form=>{'
+        'const mode=form.elements.mode,peer=form.elements.peer_id,transport=form.elements.transport;'
+        'function sync(){const managed=mode.value==="peer";form.querySelector(".edit-peer-fields").hidden=!managed;'
+        'peer.required=managed;transport.required=managed;'
+        'const kinds=(peer.selectedOptions[0]?.dataset.transports||"").split(",");'
+        'for(const option of transport.options)option.disabled=managed&&!kinds.includes(option.value);'
+        'if(managed&&transport.selectedOptions[0]?.disabled){const first=[...transport.options].find(o=>!o.disabled);if(first)transport.value=first.value}}'
+        'mode.addEventListener("change",sync);peer.addEventListener("change",sync);sync();'
+        'form.addEventListener("submit",()=>{form.querySelector("button[type=submit]").disabled=true})});</script>'
     )
     return layout(t(lang, "fw.title"), body, "/forwarding", ctx["flash"], lang)
 

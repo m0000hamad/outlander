@@ -1,5 +1,18 @@
 # Changes
 
+## Console 1.3 — edit active forwarding rules
+
+- Add Edit/Save and apply/Cancel on each Active rules row in Persian and English.
+  Prefill protocol, mode, listen IP/port, destination, peer server and transport.
+- Replace the rule at its existing position; no delete/re-add is necessary.
+  Re-evaluate Auto on edit and reject unreachable routes without discarding the
+  current rule. Reject stale editor submissions and overlapping/busy ports.
+- Restore saved configuration and affected runtime if applying the replacement
+  fails; explicitly report a recovery error if restoration itself fails.
+- Reload the shared Dokodemo process only when its inbounds change. Direct-only
+  and peer-only edits leave that process alone; peer edits replace only that
+  rule's owned container. The gateway and panel are never restarted by an edit.
+
 ## Console 1.2 — managed peer port tunnels
 
 - Add bilingual Peer servers page with root SSH password/private-key registration,

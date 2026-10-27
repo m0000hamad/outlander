@@ -1,5 +1,23 @@
 # Forwarding ports, IPs and SNI
 
+## Editing active rules
+
+Open **Forwarding → Active rules → Edit**. The editor is prefilled and supports
+protocol, mode (Direct/Auto/Dokodemo/managed peer), listen IP/port, destination,
+peer server and prepared transport. **Save and apply** replaces the same row;
+**Cancel** closes the editor without changing the rule. Runtime health fields are
+computed automatically rather than edited manually.
+
+Port conflicts, unsupported combinations and stale forms are rejected before
+changing a route. Auto is checked against the new destination before applying.
+If deployment fails, the previous rule and affected runtime are restored; a
+failed restoration is reported separately for operator attention.
+
+Changing the original Dokodemo inbounds reloads its shared Xray process, so
+connections through that process may reconnect. Direct-only and managed-peer-only
+edits do not restart it. Managed peer edits replace only that rule's owned
+container. The gateway and panel are not restarted by editing a forwarding rule.
+
 Three layers, each solving a different problem:
 
 | need | tool | file |

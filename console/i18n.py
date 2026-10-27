@@ -370,6 +370,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
 
 TRANSLATIONS["fa"].update({
+    "fw.edit": "ویرایش", "fw.cancel": "انصراف", "fw.save_edit": "ذخیره و اعمال",
+    "fw.edit_note": "تغییرات روی همین قانون اعمال می‌شوند؛ در صورت خطا، قانون قبلی بازیابی می‌شود.",
+    "fw.updated": "قانون ویرایش و اعمال شد: {summary}",
     "nav.peers": "سرورهای مقابل", "fw.mode_peer": "تونل به سرور مقابل",
     "peer.title": "سرورهای مقابل", "peer.server": "سرور مقابل", "peer.transport": "نوع تونل",
     "peer.manage": "تعریف و آماده‌سازی سرور", "peer.add": "افزودن سرور", "peer.name": "نام سرور",
@@ -386,6 +389,9 @@ TRANSLATIONS["fa"].update({
     "peer.removed": "حذف انجام شد.",
 })
 TRANSLATIONS["en"].update({
+    "fw.edit": "Edit", "fw.cancel": "Cancel", "fw.save_edit": "Save and apply",
+    "fw.edit_note": "Changes replace this rule. If applying fails, the previous rule is restored.",
+    "fw.updated": "Rule updated and applied: {summary}",
     "nav.peers": "Peer servers", "fw.mode_peer": "Managed peer tunnel", "peer.title": "Peer servers",
     "peer.server": "Peer server", "peer.transport": "Tunnel type", "peer.manage": "Manage peer servers",
     "peer.add": "Add server", "peer.name": "Server name", "peer.address": "IP or hostname", "peer.ssh_port": "SSH port",

@@ -94,7 +94,7 @@ def _safe_equal(left: str, right: str) -> bool:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "OutlanderConsole/1.2"
+    server_version = "OutlanderConsole/1.3"
     protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt: str, *args: object) -> None:
@@ -307,6 +307,7 @@ class Handler(BaseHTTPRequestHandler):
             "/outbounds/toggle": self._outbounds_toggle,
             "/outbounds/apply": self._outbounds_apply,
             "/forwarding/add": self._forwarding_add,
+            "/forwarding/update": self._forwarding_update,
             "/forwarding/delete": self._forwarding_delete,
             "/forwarding/hop": self._forwarding_hop,
             "/forwarding/apply": self._forwarding_apply,
@@ -441,6 +442,14 @@ class Handler(BaseHTTPRequestHandler):
             message += f" ({tunnel_detail})"
         ops.remember("apply", message)
         return "/forwarding", message, "ok" if tunnel_ok else "err"
+
+    def _forwarding_update(self, form: dict[str, str]) -> tuple[str, str, str]:
+        try:
+            index = int(form.get("index", "-1"))
+        except ValueError:
+            index = -1
+        summary = ops.update_forward(index, form.get("rule_token", ""), form)
+        return "/forwarding", self._tr("fw.updated", summary=summary), "ok"
 
     def _forwarding_delete(self, form: dict[str, str]) -> tuple[str, str, str]:
         try:

@@ -8,6 +8,7 @@ Covers two things the panel cannot do on its own:
 from __future__ import annotations
 
 import ipaddress
+import hashlib
 import json
 import os
 import re
@@ -29,6 +30,15 @@ IP_RE = re.compile(r"^[0-9a-fA-F:.]{2,45}$")
 TARGET_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.\-]{0,252}(:\d{1,5})?$")
 PROTOS = {"tcp", "udp", "both"}
 MODES = {"auto", "nft", "dokodemo", "peer"}
+
+
+def edit_token(rule: dict) -> str:
+    """Identify user-editable fields; automatic health updates must not stale a form."""
+    fields = {key: rule.get(key, "") for key in
+              ("proto", "listen", "listen_ip", "target", "mode", "peer_id", "transport", "peer_rule_id")}
+    fields["proto"] = fields["proto"] or "tcp"
+    fields["mode"] = fields["mode"] or "nft"
+    return hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()
 
 
 def load(root: Path) -> dict:
