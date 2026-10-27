@@ -113,14 +113,38 @@ done
 
 if [[ -f data/x-ui/x-ui.db ]]; then
   say "setting panel credentials"
+  PANEL_CONFIGURED=0
   for binary in /app/x-ui /usr/local/x-ui/x-ui; do
     if docker exec ol-panel test -x "$binary" 2>/dev/null; then
-      docker exec ol-panel "$binary" setting -username "$PANEL_USERNAME" -password "$PANEL_PASSWORD" -port "$PANEL_PORT" >/dev/null 2>&1 || true
+      docker exec ol-panel "$binary" setting -username "$PANEL_USERNAME" -password "$PANEL_PASSWORD" -port "$PANEL_PORT"
+      PANEL_CONFIGURED=1
       break
     fi
   done
+  if [[ "$PANEL_CONFIGURED" != 1 ]]; then
+    echo "panel executable not found; inspect: docker logs --tail 80 ol-panel" >&2
+    exit 1
+  fi
+  # Settings are persisted to SQLite; restart to load the configured port.
+  docker restart ol-panel >/dev/null
+  say "waiting for the panel HTTP listener"
+  PANEL_READY=0
+  for _ in $(seq 1 60); do
+    if curl --noproxy '*' -sS -o /dev/null --connect-timeout 1 --max-time 2 "http://127.0.0.1:${PANEL_PORT}/" 2>/dev/null; then
+      PANEL_READY=1
+      break
+    fi
+    sleep 2
+  done
+  if [[ "$PANEL_READY" != 1 ]]; then
+    echo "panel did not start on port ${PANEL_PORT}; inspect: docker logs --tail 80 ol-panel" >&2
+    exit 1
+  fi
   say "routing panel traffic through the gateway"
   python3 -m outlander panel patch || echo "    warning: panel patch failed, see docs/PANEL.md"
+else
+  echo "panel database was not created; inspect: docker logs --tail 80 ol-panel" >&2
+  exit 1
 fi
 
 if [[ -f config/nftables/outlander.nft ]]; then
@@ -150,7 +174,7 @@ systemctl enable --now outlander-forward.service >/dev/null 2>&1 || true
 
 say "installing the certificate renewal cron"
 CRON_RENEW="15 4 * * * cd ${ROOT} && bash scripts/cert.sh --renew >> /var/log/outlander-cert.log 2>&1"
-( (crontab -l 2>/dev/null || true) | grep -v 'scripts/cert.sh --renew'; echo "$CRON_RENEW" ) | crontab -
+( (crontab -l 2>/dev/null || true) | sed '\|scripts/cert.sh --renew|d'; echo "$CRON_RENEW" ) | crontab -
 
 if command -v ufw >/dev/null 2>&1; then
   ufw allow 22/tcp >/dev/null 2>&1 || true
