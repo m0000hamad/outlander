@@ -94,6 +94,7 @@ if [[ -n "$OUTBOUND" ]]; then
   python3 -m outlander add "$OUTBOUND"
 fi
 python3 -m outlander render
+python3 -m outlander forward render
 
 if [[ "${HY2_ENABLED:-0}" == "1" ]]; then
   if [[ ! -f certs/fullchain.pem ]]; then
