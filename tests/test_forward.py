@@ -147,9 +147,9 @@ class RuleValidationTests(unittest.TestCase):
 
     def test_auto_rule_is_not_rendered_until_resolved(self):
         auto = {"proto": "tcp", "listen": "2083", "target": "10.0.0.5:443", "mode": "auto"}
-        self.assertNotIn("2083", forward.nft_text(base(rules=[auto])))
+        self.assertNotIn("tcp dport 2083 dnat", forward.nft_text(base(rules=[auto])))
         auto["resolved"] = "dokodemo"
-        self.assertNotIn("2083", forward.nft_text(base(rules=[auto])))
+        self.assertNotIn("tcp dport 2083 dnat", forward.nft_text(base(rules=[auto])))
         auto["resolved"] = "nft"
         self.assertIn("tcp dport 2083 dnat ip to 10.0.0.5:443", forward.nft_text(base(rules=[auto])))
 
@@ -190,6 +190,22 @@ class RuleValidationTests(unittest.TestCase):
 
 
 class NftRenderTests(unittest.TestCase):
+    def test_mss_is_limited_for_dnat_and_active_tunnel_ports(self):
+        text = forward.nft_text(base(rules=[
+            {"proto": "both", "listen": "2087", "target": "10.0.0.5:443", "mode": "dokodemo"},
+            {"proto": "tcp", "listen": "2083", "target": "10.0.0.5:443", "mode": "auto", "resolved": "nft"},
+            {"proto": "udp", "listen": "2088", "target": "10.0.0.5:443", "mode": "dokodemo"},
+        ]))
+        self.assertIn("ct status dnat tcp flags & (syn | rst) == syn", text)
+        self.assertIn("tcp sport { 2087 }", text)
+        self.assertNotIn("tcp sport { 2083", text)
+        self.assertNotIn("tcp sport { 2088", text)
+        self.assertIn("maxseg size > 1200 tcp option maxseg size set 1200", text)
+
+    def test_mss_output_does_not_match_unrelated_services(self):
+        text = forward.nft_text(base())
+        self.assertNotIn("tcp sport", text)
+
     def test_port_rule(self):
         text = forward.nft_text(base(rules=[{"proto": "tcp", "listen": "3389", "target": "10.0.0.5:3389"}]))
         self.assertIn("tcp dport 3389 dnat ip to 10.0.0.5:3389", text)
