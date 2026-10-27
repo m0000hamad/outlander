@@ -160,6 +160,7 @@ def _mode_label(rule: dict, lang: str) -> str:
             label = t(lang, "fw.mode_dokodemo")
         else:
             label = t(lang, "fw.pending")
+        label = t(lang, "fw.auto_path", path=label)
     else:
         label = t(lang, f"fw.mode_{mode}")
     return f"{label} · {error}" if error else label

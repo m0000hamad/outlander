@@ -1,5 +1,11 @@
 # Changes
 
+### Auto route visibility
+
+Active rules now explicitly display both automatic mode and the selected path
+(Direct or Dokodemo), instead of displaying the resolved path as though it were
+the configured fixed mode. Pending/error states keep the Auto indication too.
+
 ## Console 1.3 — edit active forwarding rules
 
 - Add Edit/Save and apply/Cancel on each Active rules row in Persian and English.

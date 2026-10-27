@@ -370,6 +370,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
 
 TRANSLATIONS["fa"].update({
+    "fw.auto_path": "خودکار · مسیر فعلی: {path}",
     "fw.edit": "ویرایش", "fw.cancel": "انصراف", "fw.save_edit": "ذخیره و اعمال",
     "fw.edit_note": "تغییرات روی همین قانون اعمال می‌شوند؛ در صورت خطا، قانون قبلی بازیابی می‌شود.",
     "fw.updated": "قانون ویرایش و اعمال شد: {summary}",
@@ -389,6 +390,7 @@ TRANSLATIONS["fa"].update({
     "peer.removed": "حذف انجام شد.",
 })
 TRANSLATIONS["en"].update({
+    "fw.auto_path": "Auto → {path}",
     "fw.edit": "Edit", "fw.cancel": "Cancel", "fw.save_edit": "Save and apply",
     "fw.edit_note": "Changes replace this rule. If applying fails, the previous rule is restored.",
     "fw.updated": "Rule updated and applied: {summary}",
