@@ -15,7 +15,7 @@ Persian guide: [README.fa.md](README.fa.md)
 ## Install
 
 ```bash
-git clone <your-repo> outlander && cd outlander
+git clone https://github.com/m0000hamad/outlander.git outlander && cd outlander
 sudo bash scripts/install.sh
 make doctor
 ```
