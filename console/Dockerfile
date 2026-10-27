@@ -1,9 +1,12 @@
-FROM python:3.12-slim
+FROM python:3.12-slim-trixie
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends nftables iptables ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir certbot certbot-dns-cloudflare
+# Use Debian's Certbot and plugin together; building must not depend on PyPI.
+RUN apt-get -o Acquire::Retries=3 update \
+    && apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
+       nftables iptables ca-certificates certbot python3-certbot-dns-cloudflare \
+    && certbot --version \
+    && certbot plugins --text | grep -q 'dns-cloudflare' \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /repo
 ENV PYTHONUNBUFFERED=1 \
