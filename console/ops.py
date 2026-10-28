@@ -258,28 +258,41 @@ def _ready_peer_routes(rule: dict) -> list[tuple[dict, str]]:
 
 
 def _decide(rule: dict) -> tuple[str, str]:
-    """Prefer direct, then healthy prepared peers, then the original gateway."""
+    """Prefer TLS-camouflaged encryption, then latency; never downgrade to direct."""
     host, _, port = rule["target"].partition(":")
     if not port.isdigit():
         return "", "target needs a port"
-    try:
-        address = forward.resolve_target(rule["target"]).partition(":")[0]
-    except ValueError:
-        address = host  # Peer-side DNS may work while local DNS does not.
-    else:
-        if probe.tcp_reachable(address, int(port), 3):
-            return "nft", ""
     if rule.get("listen_ip") or (rule.get("listen") and not str(rule["listen"]).isdigit()):
         return "", "tunnel fallback requires a single port and an empty listen IP"
+    candidates = []
     for peer, kind in _ready_peer_routes(rule):
-        if peers.probe_target(ROOT, peer, kind, host, int(port)):
-            return f"peer:{peer['id']}:{kind}", ""
+        latency = peers.measure_target(ROOT, peer, kind, host, int(port))
+        if latency is not None:
+            candidates.append((1 if kind == "ssh" else 0, latency, peer["id"], kind))
+    # Dokodemo remains the legacy fallback. Its encryption depends on the
+    # configured gateway outbound, so do not assign it a peer security tier.
     proxy_host, proxy_port = _gateway()
-    health_url = render.load(ROOT).get("settings", {}).get("health_check") or "https://www.gstatic.com/generate_204"
-    if (probe.socks5_reachable(proxy_host, proxy_port, address, int(port), 6)
-            and probe.socks5_http_reachable(proxy_host, proxy_port, health_url, 6)):
+    url = render.load(ROOT).get("settings", {}).get("health_check") or "https://www.gstatic.com/generate_204"
+    samples = []
+    for _ in range(2):
+        start = time.monotonic()
+        if not (probe.socks5_http_reachable(proxy_host, proxy_port, url, 6)
+                and probe.socks5_reachable(proxy_host, proxy_port, host, int(port), 5)):
+            break
+        samples.append(time.monotonic() - start)
+    if len(samples) == 2:
+        candidates.append((2, sum(samples) / 2, "", "dokodemo"))
+    if not candidates:
+        return "", "No healthy peer tunnel or Dokodemo gateway / هیچ تونل سالمی در سرورهای مقابل یا گیت‌وی دکودمو پیدا نشد"
+    best = min(candidates)
+    current = next((item for item in candidates if item[2:] == (rule.get("peer_id"), rule.get("transport"))), None)
+    # Same-security improvements must exceed both 20% and 50 ms to avoid flapping.
+    if current and current[0] == best[0] and current[1] - best[1] < max(.05, current[1] * .20):
+        best = current
+    rule["auto_latency_ms"] = round(best[1] * 1000)
+    if best[3] == "dokodemo":
         return "dokodemo", ""
-    return "", "direct, prepared peers and gateway failed"
+    return f"peer:{best[2]}:{best[3]}", ""
 
 
 def _assign_decision(rule: dict, decision: str, detail: str = "") -> None:
@@ -325,6 +338,8 @@ def apply_tunnel() -> tuple[bool, str]:
 
 @forward_transaction
 def add_forward(proto: str, listen_ip: str, listen: str, target: str, mode: str = "nft") -> str:
+    if mode == "auto":
+        return add_auto_forward({"proto": proto, "listen_ip": listen_ip, "listen": listen, "target": target})
     data = forward.load(ROOT)
     try:
         rule = forward.normalise_rule(
@@ -444,8 +459,8 @@ def _edited_rule(old: dict, form: dict[str, str]) -> dict:
         if profile.get("status") != "ready":
             raise peers.PeerError("Prepare this tunnel on the server first / ابتدا این تونل را روی سرور آماده کنید")
         rule["resolved"] = "peer"
-    elif rule["mode"] == "auto" and rule["listen"].isdigit():
-        if rule["listen_ip"] or ":" not in rule["target"]:
+    elif rule["mode"] == "auto":
+        if not rule["listen"].isdigit() or rule["listen_ip"] or ":" not in rule["target"]:
             raise peers.PeerError("Auto needs a target port and an empty listen IP / اتو به پورت مقصد و IP ورودی خالی نیاز دارد")
         decision, detail = _decide(rule)
         if not decision:
@@ -587,11 +602,11 @@ def reconcile_forwards() -> str:
         if (rule.get("mode") or "nft") != "auto" or not str(rule.get("listen", "")).isdigit():
             continue
         decision, detail = _decide(rule)
-        if not decision:
+        if not decision and forward.effective_mode(rule) != "nft":
             rule.update(checked_at=_now(), last_error=detail)
             continue
         replacement = copy.deepcopy(rule)
-        _assign_decision(replacement, decision)
+        _assign_decision(replacement, decision, detail)
         if _route_key(rule) == _route_key(replacement):
             data["rules"][index] = replacement
             continue

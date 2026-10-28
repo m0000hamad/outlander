@@ -29,8 +29,9 @@ class DecideTests(unittest.TestCase):
         ):
             return ops._decide({"target": "x.example:443"})
 
-    def test_direct_wins(self):
-        self.assertEqual(self.decide(True, True), ("nft", ""))
+    def test_direct_is_excluded_even_when_reachable(self):
+        self.assertEqual(self.decide(True, True), ("dokodemo", ""))
+        self.assertEqual(self.decide(True, False)[0], "")
 
     def test_tunnel_fallback(self):
         self.assertEqual(self.decide(False, True), ("dokodemo", ""))

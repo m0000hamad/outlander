@@ -515,14 +515,24 @@ def delete_forward(root: Path, rule: dict) -> None:
     config.unlink(missing_ok=True)
 
 
-def probe_target(root: Path, peer: dict, kind: str, host: str, port: int) -> bool:
-    """Probe a prepared transport privately without replacing an active listener."""
+def measure_target(root: Path, peer: dict, kind: str, host: str, port: int) -> float | None:
+    """Mean of two successful traffic checks, excluding local runtime startup."""
     if peer.get("transports", {}).get(kind, {}).get("status") != "ready":
-        return False
+        return None
+    def measure(listen: int) -> float | None:
+        url = render.load(root).get("settings", {}).get("health_check") or "https://www.gstatic.com/generate_204"
+        samples = []
+        for _ in range(2):
+            start = time.monotonic()
+            if not (probe.socks5_http_reachable("127.0.0.1", listen, url, 6)
+                    and probe.socks5_reachable("127.0.0.1", listen, host, port, 5)):
+                return None
+            samples.append(time.monotonic() - start)
+        return sum(samples) / len(samples)
     try:
         if kind == "ssh":
             socks_port = ensure_ssh(root, peer)
-            return probe.socks5_reachable("127.0.0.1", socks_port, host, port, 5)
+            return measure(socks_port)
         with _PROBE_LOCK:
             with socket.socket() as sock:
                 sock.bind(("127.0.0.1", 0))
@@ -533,11 +543,7 @@ def probe_target(root: Path, peer: dict, kind: str, host: str, port: int) -> boo
             try:
                 create_forward(root, rule, probe_only=True)
                 created = True
-                url = render.load(root).get("settings", {}).get("health_check") or "https://www.gstatic.com/generate_204"
-                # Xray's local SOCKS acknowledgement alone does not prove its
-                # outbound handshake worked. Require real traffic through it.
-                return (probe.socks5_http_reachable("127.0.0.1", listen, url, 6)
-                        and probe.socks5_reachable("127.0.0.1", listen, host, port, 5))
+                return measure(listen)
             finally:
                 if created:
                     delete_forward(root, rule)
@@ -546,7 +552,11 @@ def probe_target(root: Path, peer: dict, kind: str, host: str, port: int) -> boo
                     except OSError:
                         pass
     except Exception:
-        return False  # A failed candidate must not interrupt other healthy routes.
+        return None  # A failed candidate must not interrupt other healthy routes.
+
+
+def probe_target(root: Path, peer: dict, kind: str, host: str, port: int) -> bool:
+    return measure_target(root, peer, kind, host, port) is not None
 
 
 def cleanup_probes(root: Path) -> None:

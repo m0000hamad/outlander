@@ -37,23 +37,31 @@ and prepares an isolated tunnel on an Ubuntu/Debian server you control.
 ## Automatic peer selection
 
 **Auto** can select prepared REALITY, XHTTP and SSH peers without choosing a
-specific server manually. It prefers direct access, then a working prepared peer,
-then the original Dokodemo gateway. An already-selected healthy peer is preferred
-over other peers to avoid switching needlessly; recovery of the direct path
-returns the rule to direct access. SSH is considered only for TCP rules.
+specific server manually. Direct is excluded. TLS-camouflaged encrypted REALITY
+and XHTTP share the preferred tier; encrypted SSH is the next tier (TCP only).
+Dokodemo remains the final compatibility fallback; its encryption depends on the
+gateway outbound and is not guaranteed by the Dokodemo inbound itself. This is
+an explicit transport policy, not a measured security score or filtering guarantee.
+Within a tier, choose the fastest healthy candidate using the mean of two actual
+HTTP(S) plus destination CONNECT checks, excluding local container startup time.
+Keep a healthy current route unless the same-tier replacement improves by both
+20% and at least 50 ms. A failed route or higher-tier candidate switches immediately.
+Displayed milliseconds are check duration, not throughput or application ping.
 
 REALITY/XHTTP candidates are checked using private, temporary SOCKS probe
 containers bound to loopback. A real HTTP/HTTPS response through the transport
 is required, using the inventory's existing `settings.health_check` URL, followed
 by a destination TCP CONNECT check. The gateway also needs a real HTTP response.
-SSH candidates use their authenticated dynamic forward to check destination TCP.
+SSH candidates also require actual HTTP(S) traffic through their authenticated
+dynamic forward. Each candidate must pass both samples to be eligible.
 These are transport/TCP health checks; they do not authenticate the application's
 VLESS credentials or independently verify UDP delivery.
 
 Only profiles already marked ready are considered; Auto never installs or changes
 the remote server. Active rules show the selected peer name and transport.
 Switches use the rule editor's rollback path. If every candidate fails, the last
-selection remains configured with an error status. Probes are removed after each
+selection remains configured with an error status, except an old Auto Direct
+selection is disabled (pending) to enforce the new no-Direct policy. Probes are removed after each
 check; interrupted probes are cleaned on console restart. Fixed rules are not
 converted to Auto or changed by these checks.
 
@@ -67,9 +75,9 @@ the client-to-Outlander leg.
 
 ## Isolation and recovery
 
-- Direct, Auto, and the original Dokodemo gateway route are unchanged. New forwards
+- Fixed Direct and Dokodemo rules are unchanged. New managed forwards
   each use their own `ol-peer-fwd-*` container; creating/removing them never restarts
-  `ol-gateway`, `ol-tunnel`, or the panel. Auto does not silently choose a new peer.
+  `ol-gateway`, `ol-tunnel`, or the panel. Auto can select prepared peers as described above.
 - Remote containers are named `ol-peer-<installation-id>-<peer-id>-<transport>`.
   Configuration is under `/etc/outlander-peers/<installation-id>/...`. A busy remote
   port or a container without the matching ownership label causes setup to stop.

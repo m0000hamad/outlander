@@ -159,6 +159,8 @@ def normalise_rule(rule: dict) -> dict:
         "last_error": str(rule.get("last_error") or ""),
         "checked_at": str(rule.get("checked_at") or ""),
     }
+    if mode == "auto" and isinstance(rule.get("auto_latency_ms"), (int, float)):
+        result["auto_latency_ms"] = max(0, round(rule["auto_latency_ms"]))
     if mode == "auto" and rule.get("auto_rule_id"):
         if not re.fullmatch(r"[a-f0-9]{12}", str(rule["auto_rule_id"])):
             raise ValueError("invalid automatic rule identifier")

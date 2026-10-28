@@ -370,7 +370,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
 
 TRANSLATIONS["fa"].update({
-    "fw.auto_note": "خودکار: ابتدا مسیر مستقیم؛ در صورت نیاز تونل‌های آمادهٔ REALITY، XHTTP و SSH سرورهای مقابل؛ سپس گیت‌وی Dokodemo. مسیر فعال در جدول نمایش داده می‌شود. SSH فقط برای TCP انتخاب می‌شود.",
+    "fw.auto_note": "خودکار: REALITY و XHTTP آماده در اولویت، سپس SSH فقط برای TCP و در آخر دکودمو. در هر رده مسیر سالم با زمان تست کمتر انتخاب می‌شود؛ تغییر مسیر برای بهبود بیش از ۲۰٪ و حداقل ۵۰ میلی‌ثانیه است. Direct انتخاب نمی‌شود. رمزگذاری دکودمو به خروجی گیت‌وی وابسته است؛ عدد جدول زمان تست است، نه سرعت دانلود.",
     "fw.auto_path": "خودکار · مسیر فعلی: {path}",
     "fw.edit": "ویرایش", "fw.cancel": "انصراف", "fw.save_edit": "ذخیره و اعمال",
     "fw.edit_note": "تغییرات روی همین قانون اعمال می‌شوند؛ در صورت خطا، قانون قبلی بازیابی می‌شود.",
@@ -391,7 +391,7 @@ TRANSLATIONS["fa"].update({
     "peer.removed": "حذف انجام شد.",
 })
 TRANSLATIONS["en"].update({
-    "fw.auto_note": "Auto: direct first, then prepared REALITY/XHTTP/SSH peer tunnels, then the original Dokodemo gateway. The active server and transport appear in the table. SSH is used only for TCP rules.",
+    "fw.auto_note": "Auto: prepared REALITY/XHTTP first, SSH for TCP next, then Dokodemo. Choose the lowest measured check time within each tier; switching needs a 20% improvement and at least 50 ms. Direct is excluded. Dokodemo encryption depends on the gateway outbound. The displayed check time is not download speed.",
     "fw.auto_path": "Auto → {path}",
     "fw.edit": "Edit", "fw.cancel": "Cancel", "fw.save_edit": "Save and apply",
     "fw.edit_note": "Changes replace this rule. If applying fails, the previous rule is restored.",

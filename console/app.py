@@ -94,7 +94,7 @@ def _safe_equal(left: str, right: str) -> bool:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "OutlanderConsole/1.4"
+    server_version = "OutlanderConsole/1.5"
     protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt: str, *args: object) -> None:

@@ -163,6 +163,8 @@ def _mode_label(rule: dict, lang: str) -> str:
         else:
             label = t(lang, "fw.pending")
         label = t(lang, "fw.auto_path", path=label)
+        if not error and isinstance(rule.get("auto_latency_ms"), (int, float)):
+            label += f" · {round(rule['auto_latency_ms'])} ms"
     else:
         label = t(lang, f"fw.mode_{mode}")
     return f"{label} · {error}" if error else label

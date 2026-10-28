@@ -1,5 +1,20 @@
 # Changes
 
+## Console 1.5 — ranked automatic tunnels
+
+- Exclude Direct from new automatic selections. Rank prepared REALITY/XHTTP in
+  one preferred tier, SSH (TCP only) next, and retain Dokodemo as the final fallback.
+  Dokodemo's encryption is determined by its gateway outbound, not its inbound.
+- Measure two successful HTTP(S) and destination CONNECT checks per candidate;
+  exclude probe-container startup from timing. Choose minimum mean check duration
+  within each tier; this does not measure bandwidth or prove censorship resistance.
+- Keep a healthy current same-tier route unless improvement meets both 20% and
+  50 ms. Failed current paths and higher-priority tiers switch without that delay.
+- Show selected check milliseconds in Active rules. Keep fixed rules and existing
+  rollback behavior; all-failed checks retain the prior tunnel with an error.
+  Existing Auto Direct rules become pending when no tunnel is healthy, so an
+  upgrade cannot silently keep sending automatic traffic over Direct.
+
 ### SSH setup diagnostics
 
 - Distinguish pre-login SSH handshake failures, authentication failures, refused
