@@ -1,5 +1,11 @@
 # Changes
 
+### SSH setup diagnostics
+
+- Distinguish pre-login SSH handshake failures, authentication failures, refused
+  or unreachable SSH ports and remote tunnel-port conflicts. Return fixed,
+  bilingual messages without exposing remote stdout, stderr or credentials.
+
 ## Console 1.4 — automatic prepared-peer failover
 
 - Extend Auto to prepared REALITY, XHTTP and compatible SSH peers. Prefer direct,

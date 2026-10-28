@@ -152,6 +152,39 @@ def _spawn(root: Path, peer: dict, extra: list[str], command: str | None = None)
                 os.close(fd)
 
 
+def _ssh_error(stderr: bytes) -> str:
+    """Map SSH diagnostics to fixed messages; never expose remote output/secrets."""
+    if b"REMOTE HOST IDENTIFICATION HAS CHANGED" in stderr:
+        return "SSH host key changed; verify server identity / کلید میزبان تغییر کرده است"
+    marker = re.search(rb"OUTLANDER_ERROR:([a-z_]+)", stderr)
+    if marker:
+        messages = {
+            b"root_required": "SSH connected, but root access is required / اتصال SSH برقرار است؛ دسترسی root لازم است",
+            b"port_busy": "Remote tunnel port is already in use; choose a free port / پورت تونل روی سرور مقابل اشغال است؛ پورت آزاد انتخاب کنید",
+            b"not_owned": "Remote container belongs to another installation / کانتینر سمت مقابل متعلق به نصب دیگری است",
+            b"container_failed": "Remote tunnel container failed to start / کانتینر تونل سمت مقابل اجرا نشد",
+        }
+        return messages.get(marker.group(1), "Remote setup command failed / فرمان نصب سمت مقابل ناموفق بود")
+    lower = stderr.lower()
+    if b"banner exchange" in lower or b"ssh identification string" in lower:
+        return "SSH handshake failed before login; check the SSH service, port and firewall / مذاکره SSH پیش از ورود ناموفق بود؛ سرویس SSH، پورت و فایروال را بررسی کنید"
+    if b"permission denied" in lower or b"authentication failed" in lower:
+        return "SSH authentication failed; check credentials and root login policy / احراز هویت SSH ناموفق بود؛ اعتبار ورود و مجوز ورود root را بررسی کنید"
+    if b"connection refused" in lower:
+        return "SSH port refused the connection; check the SSH service and port / پورت SSH اتصال را رد کرد؛ سرویس و پورت SSH را بررسی کنید"
+    if b"connection timed out" in lower or b"operation timed out" in lower:
+        return "SSH connection timed out; check connectivity, SSH port and firewall / اتصال SSH به پایان مهلت رسید؛ ارتباط شبکه، پورت SSH و فایروال را بررسی کنید"
+    if b"no route to host" in lower or b"network is unreachable" in lower:
+        return "SSH server is unreachable from this server / سرور SSH از این سرور در دسترس نیست"
+    if b"could not resolve hostname" in lower:
+        return "SSH hostname could not be resolved / نام میزبان SSH قابل تبدیل به IP نیست"
+    if b"no matching" in lower:
+        return "SSH algorithms are incompatible; update the SSH server / الگوریتم‌های SSH سازگار نیستند؛ سرویس SSH سمت مقابل را به‌روزرسانی کنید"
+    if b"connection closed" in lower or b"connection reset" in lower:
+        return "SSH connection was closed by the remote side / اتصال SSH از سمت مقابل بسته شد"
+    return "SSH connection or remote command failed / اتصال SSH یا اجرای فرمان سمت مقابل ناموفق بود"
+
+
 def run_ssh(root: Path, peer: dict, script: str, timeout: int = 30) -> str:
     process = _spawn(root, peer, [], "bash -se")
     try:
@@ -161,12 +194,7 @@ def run_ssh(root: Path, peer: dict, script: str, timeout: int = 30) -> str:
         process.communicate()
         raise PeerError("SSH operation timed out; retry / مهلت اتصال تمام شد؛ دوباره تلاش کنید") from None
     if process.returncode:
-        # Never return remote stdout/stderr: either could contain credentials.
-        if b"REMOTE HOST IDENTIFICATION HAS CHANGED" in stderr:
-            raise PeerError("SSH host key changed; verify server identity / کلید میزبان تغییر کرده است")
-        marker = re.search(rb"OUTLANDER_ERROR:([a-z_]+)", stderr)
-        code = marker.group(1).decode() if marker else "connection_or_remote_command"
-        raise PeerError(f"SSH failed ({code}); check login, root access and server connectivity / اتصال یا اجرای فرمان ناموفق بود")
+        raise PeerError(_ssh_error(stderr))
     return stdout.decode("utf-8", "replace").strip()
 
 

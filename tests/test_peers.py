@@ -61,6 +61,30 @@ class PeerTests(unittest.TestCase):
         self.assertNotIn("not-in-output", " ".join(args))
         self.assertNotIn("StrictHostKeyChecking=no", args)
 
+    def test_ssh_errors_distinguish_handshake_auth_and_remote_port(self):
+        cases = [
+            (b"Connection timed out during banner exchange", "handshake failed before login"),
+            (b"Permission denied (publickey,password)", "authentication failed"),
+            (b"connect to host example port 22: Connection timed out", "connection timed out"),
+            (b"connect to host example port 22: Connection refused", "port refused"),
+            (b"OUTLANDER_ERROR:port_busy", "Remote tunnel port is already in use"),
+            (b"OUTLANDER_ERROR:root_required", "SSH connected"),
+            (b"REMOTE HOST IDENTIFICATION HAS CHANGED", "host key changed"),
+        ]
+        for stderr, expected in cases:
+            with self.subTest(stderr=stderr):
+                self.assertIn(expected, peers._ssh_error(stderr + b" secret-password"))
+                self.assertNotIn("secret-password", peers._ssh_error(stderr + b" secret-password"))
+        self.assertNotIn("private-secret", peers._ssh_error(b"OUTLANDER_ERROR:private_secret private-secret"))
+
+    def test_failed_ssh_uses_safe_classified_error(self):
+        process = mock.Mock(returncode=255)
+        process.communicate.return_value = (b"secret-stdout", b"Connection timed out during banner exchange secret-stderr")
+        with mock.patch.object(peers, "_spawn", return_value=process):
+            with self.assertRaisesRegex(peers.PeerError, "handshake failed before login") as error:
+                peers.run_ssh(self.root, {}, "id -u")
+        self.assertNotIn("secret", str(error.exception))
+
     def test_remote_config_and_client_config_match(self):
         profile = self.profile()
         peer = {"host": "203.0.113.12", "transports": {"reality": profile, "xhttp": profile}}
