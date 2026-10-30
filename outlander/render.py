@@ -241,7 +241,10 @@ def gateway_config(inventory: dict, env: dict | None = None) -> dict:
                 "listen": "0.0.0.0",
                 "port": socks_port,
                 "settings": {"auth": "noauth", "udp": True},
-                "sniffing": {"enabled": True, "destOverride": ["http", "tls", "quic"], "routeOnly": False},
+                # Sniffed SNI/Host is routing metadata, never a replacement for
+                # the SOCKS destination. A forwarded client's SNI may resolve
+                # back to our own listener and otherwise create a connection loop.
+                "sniffing": {"enabled": True, "destOverride": ["http", "tls", "quic"], "routeOnly": True},
             },
             {
                 "tag": "http-in",

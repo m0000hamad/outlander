@@ -1,5 +1,14 @@
 # Changes
 
+## Console 1.5.1 — gateway forwarding loop fix
+
+- Keep the original SOCKS destination when sniffing TLS SNI or HTTP Host. Use
+  sniffed names for routing only. Previously a client's domain resolving back
+  to the forwarding listener could recursively connect gateway -> listener ->
+  gateway, exhausting conntrack and making SSH/console inaccessible.
+- Add a real Xray SOCKS + TLS ClientHello regression with separate intended and
+  SNI-resolved loopback destinations; no public network or server changes needed.
+
 ## Console 1.5 — ranked automatic tunnels
 
 - Exclude Direct from new automatic selections. Rank prepared REALITY/XHTTP in
