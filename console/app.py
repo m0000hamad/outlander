@@ -6,14 +6,16 @@ import hashlib
 import hmac
 import os
 import secrets
+import shutil
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import i18n, ops, ui, peers
+from . import backup, i18n, ops, ui, peers
 
 USER = os.environ.get("CONSOLE_USER", "admin")
 PORT = int(os.environ.get("CONSOLE_PORT", "8099"))
@@ -94,7 +96,7 @@ def _safe_equal(left: str, right: str) -> bool:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "OutlanderConsole/1.5.1"
+    server_version = "OutlanderConsole/1.6.0"
     protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt: str, *args: object) -> None:
@@ -259,7 +261,9 @@ class Handler(BaseHTTPRequestHandler):
         token = self._session()
         if not token:
             return self._redirect("/login")
-        context = self._context(token, params, include_panel=path != "/peers")
+        if path == "/backup/download":
+            return self._backup_download()
+        context = self._context(token, params, include_panel=path not in {"/peers", "/backup"})
         if path == "/":
             return self._send(200, ui.dashboard(context))
         if path == "/outbounds":
@@ -268,10 +272,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, ui.forwarding(context))
         if path == "/peers":
             return self._send(200, ui.peer_servers(context))
+        if path == "/backup":
+            return self._send(200, ui.backup_page(context))
         return self._send(404, ui.layout("404", "<h1>404</h1>", "/", "", self._lang()))
 
     def do_POST(self) -> None:  # noqa: N802 - http.server API
         path = urllib.parse.urlparse(self.path).path.rstrip("/") or "/"
+        if path == "/backup/restore":
+            return self._backup_restore()
         try:
             form = self._form()
         except ValueError as exc:
@@ -330,6 +338,84 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:  # noqa: BLE001 - surfaced in the UI
             target, message, level = "/", f"{type(exc).__name__}: {exc}", "err"
         self._redirect(target, message, level)
+
+    def _backup_download(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="outlander-backup-") as temporary:
+            path = Path(temporary) / "outlander-settings.tar.gz"
+            try:
+                with ops._FORWARD_LOCK, peers._LOCK:
+                    backup.create_archive(ops.ROOT, path)
+            except (backup.BackupError, OSError) as exc:
+                return self._redirect("/backup", str(exc), "err")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/gzip")
+            self.send_header("Content-Length", str(path.stat().st_size))
+            self.send_header("Content-Disposition", 'attachment; filename="outlander-settings.tar.gz"')
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            with path.open("rb") as stream:
+                shutil.copyfileobj(stream, self.wfile, length=1024 * 1024)
+
+    def _backup_restore(self) -> None:
+        token = self._session()
+        if not token:
+            self.close_connection = True
+            return self._redirect("/login")
+        if not _safe_equal(self.headers.get("X-CSRF-Token", ""), csrf_for(token)):
+            self.close_connection = True
+            return self._send(400, "csrf token mismatch", "text/plain; charset=utf-8")
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return self._redirect("/backup", self._tr("backup.upload_invalid"), "err")
+        if length <= 0 or length > backup.MAX_ARCHIVE_BYTES:
+            self.close_connection = True
+            return self._redirect("/backup", self._tr("backup.upload_size"), "err")
+
+        with tempfile.TemporaryDirectory(prefix="outlander-upload-") as temporary:
+            archive_path = Path(temporary) / "upload.tar.gz"
+            try:
+                remaining = length
+                with archive_path.open("xb") as output:
+                    os.chmod(archive_path, 0o600)
+                    while remaining:
+                        chunk = self.rfile.read(min(1024 * 1024, remaining))
+                        if not chunk:
+                            raise backup.BackupError("Upload ended unexpectedly")
+                        output.write(chunk)
+                        remaining -= len(chunk)
+                with ops._FORWARD_LOCK, peers._LOCK:
+                    backup.restore_archive(ops.ROOT, archive_path)
+            except backup.BackupError as exc:
+                return self._redirect("/backup", str(exc), "err")
+            except OSError:
+                return self._redirect("/backup", self._tr("backup.restore_failed"), "err")
+
+        warnings: list[str] = []
+        try:
+            ops.render_all()
+            for rule in ops.forwarding().get("rules", []):
+                if ops.forward.effective_mode(rule) != "peer":
+                    continue
+                try:
+                    if peers._owned(ops.ROOT, peers.forward_name(rule)):
+                        peers.delete_forward(ops.ROOT, rule)
+                    peers.create_forward(ops.ROOT, rule)
+                except Exception as exc:  # noqa: BLE001 - keep restoring other forwards
+                    warnings.append(str(exc))
+            applied, detail = ops.apply_forwarding()
+            if not applied:
+                warnings.append(detail)
+            for service in ("gateway", "tunnel", "singbox"):
+                state = ops.container_state(service).get("state")
+                if state == "running" or (service in {"gateway", "tunnel"} and state in {"exited", "stopped"}):
+                    ops.container_action(service, "restart" if state == "running" else "start")
+        except Exception as exc:  # noqa: BLE001 - settings are restored; report activation issue
+            warnings.append(str(exc))
+        if warnings:
+            return self._redirect("/backup", self._tr("backup.restored_warning"), "err")
+        return self._redirect("/backup", self._tr("backup.restored"), "ok")
 
     # -- auth -------------------------------------------------------------
     def _login(self, form: dict[str, str]) -> None:

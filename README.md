@@ -48,6 +48,8 @@ python3 -m outlander forward render
 make test | make doctor | make backup | make panel
 ```
 
+For server migration, use **Backup / Restore** in the web console to export/import outbound settings,
+
 ## Ports
 
 | Purpose | Port |
@@ -86,3 +88,4 @@ unless you pass `--purge-data`. Docker itself is never touched.
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) - day-2 operations
 
 Use it in line with local law and your provider's terms.
+panel user data and TLS certificates are not included.

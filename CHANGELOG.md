@@ -1,5 +1,18 @@
 # Changes
 
+## Console 1.6.0 — migration backup and forwarding loop guard
+
+- Add an authenticated Backup / Restore page for outbound settings, forwarding rules and peer
+  server state. Verify the archive manifest and file hashes, reject unsafe archive entries, stage
+  and validate before replacing files, and cap uploads at 64 MB.
+- Re-render Xray, sing-box and nftables after restore, recreate local managed-forward containers,
+  apply forwarding rules, and restart the running gateway/tunnel services. Preserve the remote
+  peer servers; restoring never sends commands to them.
+- Include SSH peer credentials in the archive and label the file as sensitive. Keep panel user
+  database and TLS certificates outside this settings-only archive.
+- Refuse new same-port forwards whose target resolves to a local host address. This prevents the
+  self-forward rules that filled conntrack and exhausted the server's RAM.
+
 ## Console 1.5.1 — gateway forwarding loop fix
 
 - Keep the original SOCKS destination when sniffing TLS SNI or HTTP Host. Use

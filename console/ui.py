@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import json
 from outlander.forward import edit_token
 
 from .i18n import direction, normalise, t
@@ -89,6 +90,7 @@ def _nav(active: str, lang: str) -> str:
         ("/outbounds", t(lang, "nav.outbounds")),
         ("/forwarding", t(lang, "nav.forwarding")),
         ("/peers", t(lang, "nav.peers")),
+        ("/backup", t(lang, "nav.backup")),
     ]
     links = "".join(
         f'<a class="{"on" if path == active else ""}" href="{path}">{esc(label)}</a>' for path, label in items
@@ -551,6 +553,40 @@ def peer_servers(ctx: dict) -> str:
     if any(peer.get("status") == "working" for peer in ctx.get("peers", [])):
         body += '<script>setTimeout(()=>{if(!document.querySelector("input:focus,textarea:focus,select:focus"))location.reload()},5000)</script>'
     return layout(t(lang, "peer.title"), body, "/peers", ctx.get("flash", ""), lang)
+
+
+def backup_page(ctx: dict) -> str:
+    lang = ctx["lang"]
+    csrf = esc(ctx["csrf"])
+    body = (
+        f'<h1>{esc(t(lang, "backup.title"))}</h1>'
+        f'<p class="sub">{esc(t(lang, "backup.hint"))}</p>'
+        '<div class="grid">'
+        f'<section class="card"><h2>{esc(t(lang, "backup.export_title"))}</h2>'
+        f'<p>{esc(t(lang, "backup.export_note"))}</p>'
+        f'<a class="btn" href="/backup/download">{esc(t(lang, "backup.download"))}</a></section>'
+        f'<section class="card"><h2>{esc(t(lang, "backup.restore_title"))}</h2>'
+        f'<p>{esc(t(lang, "backup.restore_note"))}</p>'
+        '<form id="backup-restore" action="/backup/restore" method="post">'
+        f'<input id="backup-csrf" type="hidden" value="{csrf}">'
+        f'<div class="field"><label for="backup-file">{esc(t(lang, "backup.file"))}</label>'
+        '<input id="backup-file" type="file" accept=".gz,.tgz,.tar.gz,application/gzip" required></div>'
+        f'<button class="btn danger" style="margin-top:12px" type="submit">{esc(t(lang, "backup.restore"))}</button>'
+        f'<p id="backup-status" class="tiny" aria-live="polite"></p></form></section></div>'
+        '<script>(function(){const form=document.getElementById("backup-restore");'
+        'form.addEventListener("submit",async event=>{event.preventDefault();'
+        'const file=document.getElementById("backup-file").files[0];if(!file)return;'
+        f'if(!confirm({json.dumps(t(lang, "backup.confirm"), ensure_ascii=False)}))return;'
+        'const button=form.querySelector("button");button.disabled=true;'
+        'document.getElementById("backup-status").textContent="…";try{'
+        'const response=await fetch(form.action,{method:"POST",headers:{"Content-Type":"application/gzip",'
+        f'"X-CSRF-Token":document.getElementById("backup-csrf").value}},body:file);'
+        'if(response.redirected){window.location.assign(response.url);return}if(!response.ok)throw new Error();'
+        'window.location.assign("/backup")}catch(_){document.getElementById("backup-status").textContent='
+        f'{json.dumps(t(lang, "backup.restore_failed"), ensure_ascii=False)};button.disabled=false'
+        + '}})})();</script>'
+    )
+    return layout(t(lang, "backup.title"), body, "/backup", ctx.get("flash", ""), lang)
 
 
 def login(error: str = "", lang: str = "fa") -> str:

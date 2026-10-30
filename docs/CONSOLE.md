@@ -85,6 +85,24 @@ applied with `nft -f`. Targets inside `172.28.60.0/24` automatically get a `DOCK
 The **Hysteria2 port hopping** card edits the `hop` block: a UDP range (default `20000-40000`)
 DNAT'd onto the sing-box listener.
 
+## Moving settings to a new server
+
+Open **Backup / Restore** in the console navigation and download `outlander-settings.tar.gz` before
+rebuilding. It contains the outbound inventory, forwarding rules, peer-server records and SSH
+credentials, plus the local state used by managed peer forwards. The archive is integrity-checked
+and limited to 64 MB when uploaded.
+
+On the replacement server, install Outlander, sign in to its console, and upload the archive on the
+same page. Restore validates the archive before replacing these settings, regenerates the Xray,
+sing-box and nftables files, recreates local managed-forward containers, applies the firewall rules,
+and restarts the running gateway/tunnel services. It does not log in to or alter the remote peer
+servers. The panel database and TLS certificates are not part of this settings archive.
+
+The archive contains outbound links and peer SSH passwords/private keys in readable form. Keep it
+private and delete it when it is no longer needed. The separate `make backup` command remains a
+server-side archive for `.env`, generated config, panel data and certificates; it is not the console
+settings-import format.
+
 ## Language
 
 The console ships with Persian (default) and English. The `FA / EN` switch in the header (and on the

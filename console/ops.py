@@ -5,8 +5,10 @@ from __future__ import annotations
 import http.client
 import functools
 import copy
+import ipaddress
 import json
 import os
+import re
 import secrets
 import shutil
 import socket
@@ -153,6 +155,64 @@ def env() -> dict:
 
 def forwarding() -> dict:
     return forward.load(ROOT)
+
+
+def _local_ipv4_addresses() -> set[str]:
+    """Read local IPv4 addresses from Linux's route table without shelling out."""
+    addresses = {"127.0.0.1"}
+    try:
+        lines = Path("/proc/net/fib_trie").read_text(encoding="ascii").splitlines()
+    except OSError:
+        lines = []
+    for index, line in enumerate(lines):
+        if "/32 host LOCAL" not in line or index == 0:
+            continue
+        match = re.search(r"\|--\s+([0-9.]+)", lines[index - 1])
+        if match:
+            addresses.add(match.group(1))
+    for key in ("PUBLIC_HOST", "PUBLIC_IP"):
+        configured = str(render.read_env(ROOT).get(key, "")).strip()
+        if not configured:
+            continue
+        configured = configured.split("://", 1)[-1].split("/", 1)[0].split(":", 1)[0]
+        try:
+            addresses.add(str(ipaddress.ip_address(configured)))
+        except ValueError:
+            try:
+                addresses.update(result[4][0] for result in socket.getaddrinfo(
+                    configured, None, socket.AF_INET, socket.SOCK_STREAM))
+            except OSError:
+                pass
+    return addresses
+
+
+def _assert_not_self_forward(rule: dict) -> None:
+    """Reject a same-port forward whose destination resolves back to this host."""
+    listen = str(rule.get("listen", ""))
+    if not listen.isdigit():
+        return
+    host, separator, target_port = str(rule.get("target", "")).partition(":")
+    if not separator:
+        target_port = listen
+    if (target_port or listen) != listen:
+        return
+    try:
+        target_ips = {str(ipaddress.ip_address(host))}
+    except ValueError:
+        configured_hosts = set()
+        for key in ("PUBLIC_HOST", "PUBLIC_IP"):
+            value = str(render.read_env(ROOT).get(key, "")).strip().lower()
+            if value:
+                configured_hosts.add(value.split("://", 1)[-1].split("/", 1)[0].split(":", 1)[0])
+        if host.strip("[]").lower() in {"localhost", socket.gethostname().lower()} | configured_hosts:
+            target_ips = _local_ipv4_addresses()
+        else:
+            target_ips = set()
+    if target_ips & _local_ipv4_addresses():
+        raise peers.PeerError(
+            "Forward target resolves to this server on the same port; choose the remote server / "
+            "مقصد فوروارد به همین سرور و همان پورت برمی‌گردد؛ IP سرور مقابل را انتخاب کنید"
+        )
 
 
 @forward_transaction
@@ -347,6 +407,7 @@ def add_forward(proto: str, listen_ip: str, listen: str, target: str, mode: str 
         )
     except ValueError as exc:
         raise OpError("err.invalid_rule", detail=str(exc)) from exc
+    _assert_not_self_forward(rule)
     conflicts = forward.conflicting_ports(rule)
     if conflicts:
         ports = ", ".join(str(port) for port in conflicts)
@@ -390,6 +451,7 @@ def add_peer_forward(form: dict[str, str]) -> str:
         "listen": form.get("listen", ""), "listen_ip": form.get("listen_ip", ""),
         "target": form.get("target", ""), "peer_id": form.get("peer_id", ""),
         "transport": form.get("transport", ""), "peer_rule_id": secrets.token_hex(6)})
+    _assert_not_self_forward(rule)
     port = int(rule["listen"])
     for existing in data["rules"]:
         if existing.get("proto", "tcp") != rule["proto"] and "both" not in {existing.get("proto", "tcp"), rule["proto"]}:
@@ -450,6 +512,7 @@ def _edited_rule(old: dict, form: dict[str, str]) -> dict:
             if old.get(key):
                 raw[key] = old[key]
     rule = forward.normalise_rule(raw)
+    _assert_not_self_forward(rule)
     if rule["mode"] == "auto":
         for key in ("peer_id", "transport"):
             if old.get(key):
@@ -538,6 +601,7 @@ def update_forward(index: int, token: str, form: dict[str, str]) -> str:
 
 def _apply_forward_change(original: dict, candidate: dict, old: dict | None, rule: dict) -> str:
     """One rollback-capable path for manual edits and automatic failover."""
+    _assert_not_self_forward(rule)
     env_values = env()
     legacy_changed = tunnel.config(original, env_values) != tunnel.config(candidate, env_values)
     old_peer_removed = new_peer_created = legacy_touched = False
