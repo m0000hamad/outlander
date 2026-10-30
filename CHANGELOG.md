@@ -1,5 +1,10 @@
 # Changes
 
+## Console 1.6.1 — CSRF fixes
+
+- Include the session CSRF token in the logout form.
+- Submit backup restore with the named CSRF token and explicit same-origin credentials.
+
 ## Console 1.6.0 — migration backup and forwarding loop guard
 
 - Add an authenticated Backup / Restore page for outbound settings, forwarding rules and peer
