@@ -84,7 +84,7 @@ def esc(value: object) -> str:
     return html.escape(str(value if value is not None else ""), quote=True)
 
 
-def _nav(active: str, lang: str) -> str:
+def _nav(active: str, lang: str, csrf: str) -> str:
     items = [
         ("/", t(lang, "nav.dashboard")),
         ("/outbounds", t(lang, "nav.outbounds")),
@@ -106,18 +106,18 @@ def _nav(active: str, lang: str) -> str:
         '<div class="brand">Outlander <em>console</em></div>'
         f"<nav>{links}{language}"
         '<form method="post" action="/logout" style="margin:0">'
-        f'<button class="btn ghost sm" type="submit">{esc(t(lang, "nav.logout"))}</button></form></nav>'
+        f'{csrf_input(csrf)}<button class="btn ghost sm" type="submit">{esc(t(lang, "nav.logout"))}</button></form></nav>'
         "</header>"
     )
 
 
-def layout(title: str, body: str, active: str = "/", flash_html: str = "", lang: str = "fa") -> str:
+def layout(title: str, body: str, active: str = "/", flash_html: str = "", lang: str = "fa", csrf: str = "") -> str:
     lang = normalise(lang)
     return (
         f'<!doctype html><html lang="{lang}" dir="{direction(lang)}"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         f"<title>{esc(title)} · Outlander</title><style>{STYLE}</style></head><body>"
-        f"{_nav(active, lang)}<main>{flash_html}{body}</main>"
+        f"{_nav(active, lang, csrf)}<main>{flash_html}{body}</main>"
         f"<footer>{esc(t(lang, 'footer'))}</footer>"
         "</body></html>"
     )
@@ -231,7 +231,7 @@ def dashboard(ctx: dict) -> str:
         f"3) {esc(t(lang, 'dash.quick_step3'))}</p>"
         f'<p class="tiny">{esc(t(lang, "dash.gateway_listen", address="127.0.0.1:" + str(ctx["socks_port"])))}</p></div>'
     )
-    return layout(t(lang, "dash.title"), body, "/", ctx["flash"], lang)
+    return layout(t(lang, "dash.title"), body, "/", ctx["flash"], lang, ctx["csrf"])
 
 
 def outbounds(ctx: dict) -> str:
@@ -298,7 +298,7 @@ def outbounds(ctx: dict) -> str:
         f'<p class="sub">{esc(t(lang, "ob.subtitle"))}</p>'
         f"{add_form}{table}"
     )
-    return layout(t(lang, "ob.title"), body, "/outbounds", ctx["flash"], lang)
+    return layout(t(lang, "ob.title"), body, "/outbounds", ctx["flash"], lang, ctx["csrf"])
 
 
 def rule_editor(ctx: dict, index: int, rule: dict) -> str:
@@ -511,7 +511,7 @@ def forwarding(ctx: dict) -> str:
         'mode.addEventListener("change",sync);peer.addEventListener("change",sync);sync();'
         'form.addEventListener("submit",()=>{form.querySelector("button[type=submit]").disabled=true})});</script>'
     )
-    return layout(t(lang, "fw.title"), body, "/forwarding", ctx["flash"], lang)
+    return layout(t(lang, "fw.title"), body, "/forwarding", ctx["flash"], lang, ctx["csrf"])
 
 
 def peer_servers(ctx: dict) -> str:
@@ -552,7 +552,7 @@ def peer_servers(ctx: dict) -> str:
         body += '</section>'
     if any(peer.get("status") == "working" for peer in ctx.get("peers", [])):
         body += '<script>setTimeout(()=>{if(!document.querySelector("input:focus,textarea:focus,select:focus"))location.reload()},5000)</script>'
-    return layout(t(lang, "peer.title"), body, "/peers", ctx.get("flash", ""), lang)
+    return layout(t(lang, "peer.title"), body, "/peers", ctx.get("flash", ""), lang, ctx["csrf"])
 
 
 def backup_page(ctx: dict) -> str:
@@ -568,7 +568,7 @@ def backup_page(ctx: dict) -> str:
         f'<section class="card"><h2>{esc(t(lang, "backup.restore_title"))}</h2>'
         f'<p>{esc(t(lang, "backup.restore_note"))}</p>'
         '<form id="backup-restore" action="/backup/restore" method="post">'
-        f'<input id="backup-csrf" type="hidden" value="{csrf}">'
+        f'<input id="backup-csrf" name="_csrf" type="hidden" value="{csrf}">'
         f'<div class="field"><label for="backup-file">{esc(t(lang, "backup.file"))}</label>'
         '<input id="backup-file" type="file" accept=".gz,.tgz,.tar.gz,application/gzip" required></div>'
         f'<button class="btn danger" style="margin-top:12px" type="submit">{esc(t(lang, "backup.restore"))}</button>'
@@ -580,13 +580,13 @@ def backup_page(ctx: dict) -> str:
         'const button=form.querySelector("button");button.disabled=true;'
         'document.getElementById("backup-status").textContent="…";try{'
         'const response=await fetch(form.action,{method:"POST",headers:{"Content-Type":"application/gzip",'
-        f'"X-CSRF-Token":document.getElementById("backup-csrf").value}},body:file);'
+        f'"X-CSRF-Token":form.elements.namedItem("_csrf").value}},body:file,credentials:"same-origin",cache:"no-store"}});'
         'if(response.redirected){window.location.assign(response.url);return}if(!response.ok)throw new Error();'
         'window.location.assign("/backup")}catch(_){document.getElementById("backup-status").textContent='
         f'{json.dumps(t(lang, "backup.restore_failed"), ensure_ascii=False)};button.disabled=false'
         + '}})})();</script>'
     )
-    return layout(t(lang, "backup.title"), body, "/backup", ctx.get("flash", ""), lang)
+    return layout(t(lang, "backup.title"), body, "/backup", ctx.get("flash", ""), lang, ctx["csrf"])
 
 
 def login(error: str = "", lang: str = "fa") -> str:
