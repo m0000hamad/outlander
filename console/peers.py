@@ -288,7 +288,7 @@ chmod 640 {folder}/candidate.json
 docker run --rm -v {folder}:/etc/xray:ro {IMAGE} -test -c /etc/xray/candidate.json
 mv {folder}/candidate.json {folder}/config.json
 docker run -d {bind_options} --name {name} --label outlander.peer.instance={instance} --network host \\
-  --restart unless-stopped --log-opt max-size=5m --log-opt max-file=2 \\
+  --restart unless-stopped --ulimit nofile=1048576:1048576 --log-opt max-size=5m --log-opt max-file=2 \\
   -v {folder}:/etc/xray:ro {IMAGE} run -c /etc/xray/config.json
 sleep 1
 test "$(docker inspect -f '{{{{.State.Running}}}}' {name})" = true || {{ echo OUTLANDER_ERROR:container_failed >&2; exit 1; }}
@@ -470,6 +470,7 @@ def create_forward(root: Path, rule: dict, *, probe_only: bool = False) -> None:
                  "Labels": {"outlander.peer.instance": load(root)["instance"]},
                  "HostConfig": {"NetworkMode": "host", "RestartPolicy": {"Name": "unless-stopped"},
                                 "Binds": [host_folder + ":/etc/xray:ro"],
+                                "Ulimits": [{"Name": "nofile", "Soft": 1048576, "Hard": 1048576}],
                                 "LogConfig": {"Type": "json-file", "Config": {"max-size": "5m", "max-file": "2"}}}}
     if int(rule["listen"]) < 1024:
         container["User"] = "0:0"

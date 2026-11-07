@@ -56,6 +56,7 @@ services:
       - ./config/xray:/etc/xray:ro
     depends_on:
       - gateway
+    ulimits: *nofile
     logging: *logging
 
   panel:

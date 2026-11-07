@@ -342,7 +342,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _backup_download(self) -> None:
         with tempfile.TemporaryDirectory(prefix="outlander-backup-") as temporary:
-            path = Path(temporary) / "outlander-settings.tar.gz"
+            stamp = time.strftime("%Y%m%d-%H%M%S")
+            path = Path(temporary) / f"outlander-settings-{stamp}.tar.gz"
             try:
                 with ops._FORWARD_LOCK, peers._LOCK:
                     backup.create_archive(ops.ROOT, path)
@@ -351,7 +352,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/gzip")
             self.send_header("Content-Length", str(path.stat().st_size))
-            self.send_header("Content-Disposition", 'attachment; filename="outlander-settings.tar.gz"')
+            self.send_header("Content-Disposition", f'attachment; filename="{path.name}"')
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
