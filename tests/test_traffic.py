@@ -1,3 +1,4 @@
+import io
 import json
 import tempfile
 import unittest
@@ -90,7 +91,10 @@ class TrafficTests(unittest.TestCase):
             request._redirect.assert_called_once_with("/login")
             request._session.return_value = "valid-session"
             app.Handler.do_GET(request)
-            self.assertEqual(request._send.call_args.kwargs["headers"]["Cache-Control"], "no-store")
+            response = mock.Mock(command="GET", wfile=io.BytesIO())
+            app.Handler._send(response, *request._send.call_args.args, **request._send.call_args.kwargs)
+            headers = response.send_header.call_args_list
+            self.assertEqual(headers.count(mock.call("Cache-Control", "no-store")), 1)
 
     def test_controls_refresh_values_without_replacing_edit_forms(self):
         script = ui.traffic_script("fa")

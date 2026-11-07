@@ -263,8 +263,7 @@ class Handler(BaseHTTPRequestHandler):
         if not token:
             return self._redirect("/login")
         if path == "/forwarding/traffic":
-            return self._send(200, json.dumps(traffic.sample(ops.ROOT)), "application/json; charset=utf-8",
-                              headers={"Cache-Control": "no-store"})
+            return self._send(200, json.dumps(traffic.sample(ops.ROOT)), "application/json; charset=utf-8")
         if path == "/backup/download":
             return self._backup_download()
         context = self._context(token, params, include_panel=path not in {"/peers", "/backup"})
