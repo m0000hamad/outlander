@@ -1,5 +1,7 @@
 # Web console
 
+Give each forward an optional name when creating it, or choose Edit on an existing row to set, change or clear its name. Names support Persian and other Unicode text up to 100 characters and appear in the first table column. Renaming alone does not restart the tunnel, recheck routes or reset its traffic totals. Names persist in forwarding settings and portable settings backups.
+
 The Forwarding page shows sent, received and total usage per rule. Refresh manually or leave automatic refresh enabled (five seconds). Updating counters does not reload the page or discard an open rule editor.
 
 Usage counts IP bytes on the client-facing connection, including packet overhead and retransmissions, rather than decrypted payload bytes as in Xray's API. Sent means client to target; received means target to client. Accounting covers DNAT, gateway and managed/automatic tunnels. It starts when this version of the console runs; previous traffic is unavailable. Hover over a counter for its start time.

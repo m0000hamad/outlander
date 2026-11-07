@@ -399,13 +399,13 @@ def apply_tunnel() -> tuple[bool, str]:
 
 
 @forward_transaction
-def add_forward(proto: str, listen_ip: str, listen: str, target: str, mode: str = "nft") -> str:
+def add_forward(proto: str, listen_ip: str, listen: str, target: str, mode: str = "nft", name: str = "") -> str:
     if mode == "auto":
-        return add_auto_forward({"proto": proto, "listen_ip": listen_ip, "listen": listen, "target": target})
+        return add_auto_forward({"proto": proto, "listen_ip": listen_ip, "listen": listen, "target": target, "name": name})
     data = forward.load(ROOT)
     try:
         rule = forward.normalise_rule(
-            {"proto": proto, "listen_ip": listen_ip, "listen": listen, "target": target, "mode": mode}
+            {"proto": proto, "listen_ip": listen_ip, "listen": listen, "target": target, "mode": mode, "name": name}
         )
     except ValueError as exc:
         raise OpError("err.invalid_rule", detail=str(exc)) from exc
@@ -449,7 +449,7 @@ def remove_forward(index: int) -> bool:
 def add_peer_forward(form: dict[str, str]) -> str:
     """Deploy a new isolated listener without restarting any legacy service."""
     data = forward.load(ROOT)
-    rule = forward.normalise_rule({"mode": "peer", "proto": form.get("proto", "tcp"),
+    rule = forward.normalise_rule({"mode": "peer", "proto": form.get("proto", "tcp"), "name": form.get("name", ""),
         "listen": form.get("listen", ""), "listen_ip": form.get("listen_ip", ""),
         "target": form.get("target", ""), "peer_id": form.get("peer_id", ""),
         "transport": form.get("transport", ""), "peer_rule_id": secrets.token_hex(6)})
@@ -503,6 +503,7 @@ def remove_peer_forward(index: int) -> None:
 
 def _edited_rule(old: dict, form: dict[str, str]) -> dict:
     raw = {key: form.get(key, "") for key in ("proto", "listen", "listen_ip", "target", "mode")}
+    raw["name"] = form.get("name", old.get("name", ""))
     if raw["mode"] == "peer":
         raw.update(peer_id=form.get("peer_id", ""), transport=form.get("transport", ""),
                    peer_rule_id=old.get("peer_rule_id") or secrets.token_hex(6))
@@ -592,6 +593,22 @@ def update_forward(index: int, token: str, form: dict[str, str]) -> str:
     old = original["rules"][index]
     if not token or not secrets.compare_digest(token, forward.edit_token(old)):
         raise peers.PeerError("Rule changed; refresh before editing / قانون تغییر کرده؛ صفحه را تازه کنید")
+    # Metadata-only edits must not probe, rebuild tunnels or reset usage counters.
+    fields = {key: str(old.get(key) or "") for key in ("proto", "listen", "listen_ip", "target", "mode")}
+    fields.update(proto=old.get("proto") or "tcp", mode=old.get("mode") or "nft")
+    if fields["mode"] == "peer":
+        fields.update({key: str(old.get(key) or "") for key in ("peer_id", "transport")})
+    if all(str(form.get(key, value)).strip() == value for key, value in fields.items()):
+        renamed = dict(old)
+        name = forward.rule_name(form.get("name", old.get("name", "")))
+        if name:
+            renamed["name"] = name
+        else:
+            renamed.pop("name", None)
+        if renamed != old:
+            original["rules"][index] = renamed
+            forward.save(ROOT, original)
+        return f"{renamed['listen']} → {renamed['target']}"
     rule = _edited_rule(old, form)
     if forward.edit_token(rule) == forward.edit_token(old) and _route_key(rule) == _route_key(old):
         return f"{rule['listen']} → {rule['target']}"

@@ -524,6 +524,7 @@ class Handler(BaseHTTPRequestHandler):
             form.get("listen", ""),
             form.get("target", ""),
             form.get("mode", "nft"),
+            name=form.get("name", ""),
         )
         ops.render_all()
         ok, detail = ops.apply_forwarding()

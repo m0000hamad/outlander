@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add optional forward names (up to 100 characters) to creation, editing and the forwarding table for all route types. Preserve names through automatic failover and portable backups. Name-only edits save metadata without probing or restarting tunnels, changing firewall rules or resetting usage; include names in edit tokens to reject stale edits.
+
 - Show sent, received and total IP bytes for each forwarding row, with manual refresh and automatic polling every five seconds. Account on the client-facing connection for direct DNAT, gateway and managed peer routes using an independent nftables counter table without counting the encrypted tunnel leg twice or changing traffic verdicts.
 - Persist forwarding usage in `data/console/forward-traffic.json` across console restarts, kernel counter resets and automatic transport changes. New endpoint identities start a new series; past consumption cannot be recovered. Sample in the background even without an open browser; an abrupt host failure may lose the latest unsaved interval. Settings migration backups exclude traffic history.
 - Authenticate the usage endpoint, disable response caching, show a stale warning on collection errors, and remove the accounting table on uninstall.

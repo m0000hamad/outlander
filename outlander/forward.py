@@ -35,7 +35,8 @@ MODES = {"auto", "nft", "dokodemo", "peer"}
 def edit_token(rule: dict) -> str:
     """Identify user-editable fields; automatic health updates must not stale a form."""
     fields = {key: rule.get(key, "") for key in
-              ("proto", "listen", "listen_ip", "target", "mode", "peer_id", "transport", "peer_rule_id")}
+              ("name", "proto", "listen", "listen_ip", "target", "mode", "peer_id", "transport", "peer_rule_id")}
+    fields["name"] = rule_name(fields["name"])
     fields["proto"] = fields["proto"] or "tcp"
     fields["mode"] = fields["mode"] or "nft"
     if fields["mode"] == "auto":
@@ -115,6 +116,15 @@ def resolve_target(value: str) -> str:
     return f"{chosen}:{port}" if port else chosen
 
 
+def rule_name(value: str | None) -> str:
+    if value is not None and not isinstance(value, str):
+        raise ValueError("Forward name must be text / نام فوروارد باید متن باشد")
+    name = (value or "").strip()
+    if len(name) > 100 or any(ord(char) < 32 for char in name):
+        raise ValueError("Forward name must be a single line of at most 100 characters / نام فوروارد باید یک خط و حداکثر ۱۰۰ نویسه باشد")
+    return name
+
+
 def normalise_rule(rule: dict) -> dict:
     """Validate and normalise a forwarding rule."""
     proto = (rule.get("proto") or "tcp").strip().lower()
@@ -159,6 +169,9 @@ def normalise_rule(rule: dict) -> dict:
         "last_error": str(rule.get("last_error") or ""),
         "checked_at": str(rule.get("checked_at") or ""),
     }
+    name = rule_name(rule.get("name"))
+    if name:
+        result["name"] = name
     if mode == "auto" and isinstance(rule.get("auto_latency_ms"), (int, float)):
         result["auto_latency_ms"] = max(0, round(rule["auto_latency_ms"]))
     if mode == "auto" and rule.get("auto_rule_id"):

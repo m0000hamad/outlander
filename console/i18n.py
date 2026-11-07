@@ -460,6 +460,8 @@ TRANSLATIONS["en"].update({
 
 TRANSLATIONS["fa"].update({
     "traffic.up": "ارسال به مقصد ↑",
+    "fw.name": "نام فوروارد (اختیاری)",
+    "fw.name_example": "مثلاً سرور آلمان",
     "traffic.down": "دریافت از مقصد ↓",
     "traffic.total": "مصرف کل",
     "traffic.refresh": "تازه‌سازی مصرف",
@@ -471,6 +473,8 @@ TRANSLATIONS["fa"].update({
 })
 TRANSLATIONS["en"].update({
     "traffic.up": "Sent to target ↑",
+    "fw.name": "Forward name (optional)",
+    "fw.name_example": "e.g. Germany server",
     "traffic.down": "Received from target ↓",
     "traffic.total": "Total usage",
     "traffic.refresh": "Refresh usage",

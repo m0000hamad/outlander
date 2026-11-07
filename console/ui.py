@@ -326,6 +326,7 @@ def rule_editor(ctx: dict, index: int, rule: dict) -> str:
             f'<input type="hidden" name="index" value="{index}">'
             f'<input type="hidden" name="rule_token" value="{edit_token(rule)}">'
             '<div class="row">'
+            + f'<div class="field"><label for="{prefix}-name">{esc(t(lang, "fw.name"))}</label><input id="{prefix}-name" name="name" maxlength="100" value="{esc(rule.get("name", ""))}"></div>'
             + select("proto", t(lang, "common.protocol"), [(p, p) for p in ("tcp", "udp", "both")], rule.get("proto", "tcp"))
             + select("mode", t(lang, "fw.mode"), modes, rule.get("mode") or "nft"))
     for name, label in (("listen_ip", "common.listen_ip"), ("listen", "fw.listen_port"), ("target", "common.target")):
@@ -344,7 +345,7 @@ def rule_editor(ctx: dict, index: int, rule: dict) -> str:
     body += (f'</div><div class="row" style="margin-top:12px"><button class="btn ok" type="submit">{esc(t(lang, "fw.save_edit"))}</button>'
              f'<button class="btn ghost" type="button" onclick="this.form.reset();this.form.elements.mode.dispatchEvent(new Event(\'change\'));document.getElementById(\'{prefix}\').hidden=true">{esc(t(lang, "fw.cancel"))}</button>'
              f'<span class="tiny muted">{esc(t(lang, "fw.edit_note"))}</span></div></form>')
-    return f'<tr id="{prefix}" hidden><td colspan="9">{body}</td></tr>'
+    return f'<tr id="{prefix}" hidden><td colspan="10">{body}</td></tr>'
 
 
 def forwarding(ctx: dict) -> str:
@@ -456,6 +457,7 @@ def forwarding(ctx: dict) -> str:
         f'<option value="dokodemo">{esc(t(lang, "fw.mode_dokodemo"))}</option>'
         f'<option value="peer">{esc(t(lang, "fw.mode_peer"))}</option></select></div>'
         f'<div class="field"><label>{esc(t(lang, "common.listen_ip"))}</label><input name="listen_ip" placeholder="203.0.113.5" class="mono"></div>'
+        f'<div class="field"><label>{esc(t(lang, "fw.name"))}</label><input name="name" maxlength="100" placeholder="{esc(t(lang, "fw.name_example"))}"></div>'
         f'<div class="field"><label>{esc(t(lang, "fw.listen_port"))}</label><input name="listen" placeholder="443 / 50000-50100 / *" class="mono" required></div>'
         f'<div class="field"><label>{esc(t(lang, "common.target"))}</label><input name="target" placeholder="10.0.0.5:443" class="mono" required></div></div>'
         f'<div class="row peer-fields" style="margin-bottom:12px" hidden><div class="field"><label for="forward-peer">{esc(t(lang, "peer.server"))}</label>'
@@ -481,6 +483,7 @@ def forwarding(ctx: dict) -> str:
         for index, rule in enumerate(ctx["rules"]):
             rows.append(
                 "<tr>"
+                f'<td>{esc(rule.get("name") or "—")}</td>'
                 f'<td>{esc(rule.get("proto", "tcp"))}</td>'
                 f'<td class="tiny">{esc(_mode_label(rule, lang))}</td>'
                 f'<td class="mono tiny">{esc(rule.get("listen_ip") or t(lang, "common.all"))}</td>'
@@ -498,7 +501,7 @@ def forwarding(ctx: dict) -> str:
             )
         table = (
             f'<div class="card" style="margin-top:14px"><h2>{esc(t(lang, "fw.table_title"))}</h2>'
-            f"<div style=\"overflow-x:auto\"><table><thead><tr><th>{esc(t(lang, 'common.protocol'))}</th><th>{esc(t(lang, 'fw.col_mode'))}</th><th>{esc(t(lang, 'fw.col_ip'))}</th>"
+            f"<div style=\"overflow-x:auto\"><table><thead><tr><th>{esc(t(lang, 'common.name'))}</th><th>{esc(t(lang, 'common.protocol'))}</th><th>{esc(t(lang, 'fw.col_mode'))}</th><th>{esc(t(lang, 'fw.col_ip'))}</th>"
             f"<th>{esc(t(lang, 'fw.col_port'))}</th><th>{esc(t(lang, 'fw.col_target'))}</th>"
             f"<th>{esc(t(lang, 'traffic.up'))}</th><th>{esc(t(lang, 'traffic.down'))}</th><th>{esc(t(lang, 'traffic.total'))}</th><th></th></tr></thead>"
             f'<tbody>{"".join(rows)}</tbody></table></div>'
