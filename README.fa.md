@@ -200,7 +200,7 @@ make console-logs
 ```bash
 sudo bash scripts/uninstall.sh                  # فقط runtime: کانتینرها، شبکه، یونیت، فایروال، کران
 sudo bash scripts/uninstall.sh --purge-data     # + رمزها، دیتابیس پنل، سرتیفیکیت‌ها، بکاپ‌ها
-sudo bash scripts/uninstall.sh --purge-data --remove-dir --yes   # حذف کامل پوشه، بدون سؤال
+sudo bash scripts/uninstall.sh --purge-data --purge-peers --remove-dir --yes   # حذف کامل پوشه، بدون سؤال
 ```
 
 چه چیزی همیشه پاک می‌شود:

@@ -3,7 +3,7 @@
 #
 #   sudo bash scripts/uninstall.sh                  # runtime only, keeps data/secrets
 #   sudo bash scripts/uninstall.sh --purge-data     # + .env, inventory, panel db, certs, backups
-#   sudo bash scripts/uninstall.sh --purge-data --remove-dir --yes   # delete the checkout too
+#   sudo bash scripts/uninstall.sh --purge-data --purge-peers --remove-dir --yes   # full host cleanup
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -12,6 +12,7 @@ cd "$ROOT"
 ASSUME_YES=0
 PURGE_DATA=0
 PURGE_IMAGES=0
+PURGE_PEERS=0
 REMOVE_DIR=0
 
 while [[ $# -gt 0 ]]; do
@@ -19,6 +20,7 @@ while [[ $# -gt 0 ]]; do
     -y|--yes) ASSUME_YES=1; shift ;;
     --purge-data) PURGE_DATA=1; shift ;;
     --purge-images) PURGE_IMAGES=1; shift ;;
+    --purge-peers) PURGE_PEERS=1; shift ;;
     --remove-dir) REMOVE_DIR=1; shift ;;
     -h|--help)
       cat <<'EOF'
@@ -28,6 +30,8 @@ usage: sudo bash scripts/uninstall.sh [options]
   --purge-data     also delete .env, config/inventory.json, config/forwarding.json,
                    rendered configs, data/ (panel database), certs/ and backups/
   --purge-images   also delete the locally built outlander-console image
+  --purge-peers    also delete every peer tunnel service on this host (all
+                   ol-peer-* containers) and /etc/outlander-peers
   --remove-dir     delete this checkout directory at the end (implies --purge-data is separate)
 
 What is always removed:
@@ -35,6 +39,10 @@ What is always removed:
   the ol-core docker network, outlander-forward.service,
   the "outlander" and "outlander_cdn" nftables tables, the DOCKER-USER accepts
   added for forwarding, the ufw rules added by install.sh and the certbot cron entry.
+
+Peer tunnel services (ol-peer-*) left behind by other installations stay in place
+unless you pass --purge-peers, which removes every ol-peer-* container on this
+host plus /etc/outlander-peers.
 
 Docker itself is never removed.
 EOF
@@ -74,6 +82,10 @@ EOF
   [[ "$answer" == "yes" ]] || { echo "aborted"; exit 1; }
 fi
 
+if [[ $PURGE_PEERS -eq 1 ]]; then
+  warn "every ol-peer-* container and /etc/outlander-peers will be removed"
+fi
+
 compose() {
   if docker compose version >/dev/null 2>&1; then
     docker compose "$@"
@@ -100,18 +112,34 @@ if command -v docker >/dev/null 2>&1; then
       done < <(docker network ls -q --filter "label=outlander.peer.instance=$peer_instance" --filter "label=outlander.peer.role=openvpn_internal")
     fi
   fi
+  if [[ $PURGE_PEERS -eq 1 ]]; then
+    say "removing every peer tunnel service and the remote peer configs"
+    while read -r peer_container; do
+      [[ -z "$peer_container" ]] || docker rm -f "$peer_container" >/dev/null 2>&1 || true
+    done < <(docker ps -aq --filter "name=^ol-peer-")
+  fi
   say "stopping and removing containers"
   compose down --remove-orphans >/dev/null 2>&1 || true
   for name in ol-gateway ol-panel ol-console ol-singbox ol-haproxy; do
     docker rm -f "$name" >/dev/null 2>&1 || true
   done
   docker network rm ol-core >/dev/null 2>&1 || true
+  if [[ $PURGE_PEERS -eq 0 ]] && docker ps -aq --filter "name=^ol-peer-" | grep -q .; then
+    warn "peer tunnel services from other installations are still present:"
+    docker ps -a --filter "name=^ol-peer-" --format '    {{.Names}}'
+    warn "re-run with --purge-peers to remove them and /etc/outlander-peers"
+  fi
   if [[ $PURGE_IMAGES -eq 1 ]]; then
     docker image rm outlander-console:latest >/dev/null 2>&1 || true
     say "removed the outlander-console image"
   fi
 else
   warn "docker not found, skipping containers"
+fi
+
+# Remote tunnel configs are host files; they go even when no docker is present.
+if [[ $PURGE_PEERS -eq 1 ]]; then
+  rm -rf /etc/outlander-peers
 fi
 
 # --- systemd unit --------------------------------------------------------

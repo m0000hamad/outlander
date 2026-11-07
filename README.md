@@ -71,10 +71,13 @@ For server migration, use **Backup / Restore** in the web console to export/impo
 sudo bash scripts/uninstall.sh                # containers, network, systemd unit, firewall, cron
 sudo bash scripts/uninstall.sh --purge-data   # + secrets, panel database, certificates, backups
 sudo bash scripts/uninstall.sh --purge-data --remove-dir --yes   # delete the checkout too
+sudo bash scripts/uninstall.sh --purge-data --purge-peers --remove-dir --yes  # + all peer tunnels on this host
 ```
 
 Runtime state is always removed; `.env`, `config/`, `data/`, `certs/` and `backups/` are kept
-unless you pass `--purge-data`. Docker itself is never touched.
+unless you pass `--purge-data`. Docker itself is never touched. Peer tunnel services left by other
+installations are reported and kept unless you pass `--purge-peers`, which removes every
+`ol-peer-*` container and `/etc/outlander-peers`.
 
 ## Docs
 
