@@ -100,9 +100,11 @@ def provision(root: Path, peer_id: str) -> None:
         raise peers.PeerError("Internal OpenVPN entry required")
     network, name = names(root)
     profile = peer.get("transports", {}).get(KIND, {})
+    profile.update(status="installing", enabled=True)
+    peers._profile(root, peer_id, KIND, profile)
     if not profile.get("credentials"):
-        profile = {"credentials": openvpn_server.credentials(),
-                   "subnet": f"10.{secrets.randbelow(200)+20}.{secrets.randbelow(254)+1}.0/24"}
+        profile.update(credentials=openvpn_server.credentials(),
+                       subnet=f"10.{secrets.randbelow(200)+20}.{secrets.randbelow(254)+1}.0/24")
     profile.update(status="installing", enabled=True, network=network, port=1194)
     profile["config"] = openvpn_server.client_config({"host": name}, profile)
     peers._profile(root, peer_id, KIND, profile)

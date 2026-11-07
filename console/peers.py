@@ -614,7 +614,8 @@ def cleanup_probes(root: Path) -> None:
         rule_id = labels.get("outlander.peer.probe_rule_id", "")
         if result in {204, 404} and re.fullmatch(r"[a-f0-9]{12}", rule_id):
             config = directory(root) / "forwards" / rule_id / "config.json"
-            config.unlink(missing_ok=True)
+            for filename in ("config.json", "client.ovpn", "auth.txt"):
+                (config.parent / filename).unlink(missing_ok=True)
 
 
 def delete_server(root: Path, peer_id: str) -> None:

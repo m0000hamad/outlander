@@ -122,7 +122,8 @@ non-root image restarting continuously when a user adds a port such as 80.
   prohibit fallback; leave host routing and existing services unchanged.
 - Rebuild the console image to obtain the OpenVPN/iproute2/Xray runtime. See
   docs/PEERS.md for supported profiles, routing, certificate rotation and session
-  limits. Live Linux/OpenVPN deployment still requires environment verification.
+  limits. Remote SSH provisioning and arbitrary imported profiles still require
+  environment verification; local VPN validation is recorded below.
 
 
 ## Unreleased — Internal OpenVPN
@@ -137,3 +138,10 @@ non-root image restarting continuously when a user adds a port such as 80.
   TCP/UDP/both, retaining existing forwarding and automatic-selection policies.
 - Protect dependent forwards when disabling, retain credentials for retries and
   reactivation, and restrict each container to its own runtime/credential mounts.
+- Wait for the same Docker exec readiness command to complete before inspecting
+  its exit code; an in-flight exec reports a null code, not a failed check.
+- Validate real local TLS/data, TCP and UDP forwarding, VPN Internet egress,
+  blocked forwarding when the VPN server stops, and recovery after restart on
+  the target Linux/Docker host. Temporary test forwards leave user inventory
+  unchanged. Remove interrupted probe credentials and owned private networks
+  during their corresponding cleanup/uninstall paths.

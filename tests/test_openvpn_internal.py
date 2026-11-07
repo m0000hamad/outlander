@@ -79,6 +79,27 @@ class InternalOpenVPNTests(unittest.TestCase):
             with self.assertRaises(peers.PeerError):
                 internal._ensure_network(self.root, "network")
 
+    def test_failed_certificate_creation_retains_enable_intent_for_retry(self):
+        peer_id = internal.ensure_peer(self.root)
+        with mock.patch.object(openvpn_server, "credentials", side_effect=RuntimeError("key generation failed")):
+            with self.assertRaises(RuntimeError):
+                internal.provision(self.root, peer_id)
+        self.assertTrue(peers.get(self.root, peer_id)["transports"][internal.KIND]["enabled"])
+
+    def test_interrupted_vpn_probe_removes_its_credentials_only(self):
+        container_id = "c" * 64
+        rule_id = "a" * 12
+        folder = peers.directory(self.root) / "forwards" / rule_id
+        folder.mkdir(parents=True)
+        for filename in ("config.json", "client.ovpn", "auth.txt", "keep.txt"):
+            peers._write(folder / filename, "private")
+        def api(method, path, payload=None):
+            return (204, b"") if method == "DELETE" else (200, json.dumps([{"Id": container_id}]).encode())
+        info = {"Config": {"Labels": {"outlander.peer.probe": "true", "outlander.peer.probe_rule_id": rule_id}}}
+        with mock.patch.object(peers, "api", side_effect=api), mock.patch.object(peers, "_owned", return_value=info):
+            peers.cleanup_probes(self.root)
+        self.assertEqual([p.name for p in folder.iterdir()], ["keep.txt"])
+
     def test_failed_data_check_never_reports_ready_and_cleans_resources(self):
         self._provision(False)
 

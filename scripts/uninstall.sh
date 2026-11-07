@@ -93,6 +93,11 @@ if command -v docker >/dev/null 2>&1; then
       while read -r peer_container; do
         [[ -z "$peer_container" ]] || docker rm -f "$peer_container" >/dev/null 2>&1 || true
       done < <(docker ps -aq --filter "label=outlander.peer.instance=$peer_instance")
+      # The internal VPN bridge is private to this installation. Docker refuses
+      # to remove it if any unrelated endpoint is still attached.
+      while read -r peer_network; do
+        [[ -z "$peer_network" ]] || docker network rm "$peer_network" >/dev/null 2>&1 || true
+      done < <(docker network ls -q --filter "label=outlander.peer.instance=$peer_instance" --filter "label=outlander.peer.role=openvpn_internal")
     fi
   fi
   say "stopping and removing containers"
