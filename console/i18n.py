@@ -444,6 +444,34 @@ TRANSLATIONS["en"].update({
 })
 
 
+TRANSLATIONS["fa"].update({
+    "fw.mode_openvpn_internal": "OpenVPN داخلی (اینترنال)",
+    "internal.title": "OpenVPN داخلی (اینترنال)",
+    "internal.enable": "فعال‌سازی OpenVPN روی همین سرور",
+    "internal.hint": "بدون کانفیگ خارجی؛ خروجی ترافیک از همین سرور خواهد بود.",
+    "internal.disabled": "غیرفعال است",
+    "internal.working": "در حال آماده‌سازی و بررسی اتصال؛ لطفاً منتظر بمانید…",
+    "internal.ready": "آماده است؛ عبور ترافیک از تونل با موفقیت بررسی شد.",
+    "internal.error": "آماده‌سازی ناموفق بود؛ دوباره تلاش کنید.",
+    "internal.stopped": "سرویس در دسترس نیست؛ دوباره فعال‌سازی کنید.",
+    "internal.apply": "اعمال / تلاش مجدد",
+    "internal.started": "عملیات OpenVPN داخلی شروع شد؛ نتیجه همین‌جا نمایش داده می‌شود.",
+})
+TRANSLATIONS["en"].update({
+    "fw.mode_openvpn_internal": "Internal OpenVPN",
+    "internal.title": "Internal OpenVPN",
+    "internal.enable": "Enable OpenVPN on this server",
+    "internal.hint": "No external profile required. Traffic exits from this server.",
+    "internal.disabled": "Disabled",
+    "internal.working": "Preparing and checking the connection; please wait…",
+    "internal.ready": "Ready; traffic through the tunnel was verified.",
+    "internal.error": "Preparation failed; please retry.",
+    "internal.stopped": "Service unavailable; enable it again.",
+    "internal.apply": "Apply / Retry",
+    "internal.started": "Internal OpenVPN operation started; its result appears here.",
+})
+
+
 def normalise(lang: str | None) -> str:
     value = (lang or "").strip().lower()
     return value if value in LANGS else DEFAULT_LANG

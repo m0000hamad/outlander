@@ -500,6 +500,9 @@ def remove_peer_forward(index: int) -> None:
 
 
 def _edited_rule(old: dict, form: dict[str, str]) -> dict:
+    if form.get("mode") == "openvpn_internal":
+        from .openvpn_internal import forward_form
+        form = forward_form(ROOT, form)
     raw = {key: form.get(key, "") for key in ("proto", "listen", "listen_ip", "target", "mode")}
     if raw["mode"] == "peer":
         raw.update(peer_id=form.get("peer_id", ""), transport=form.get("transport", ""),

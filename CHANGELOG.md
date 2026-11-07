@@ -110,3 +110,38 @@ service now runs with only `NET_BIND_SERVICE` and `no-new-privileges`, with all
 other capabilities dropped. Managed local/remote listeners use that same limited
 configuration only when a privileged port is requested. This avoids the official
 non-root image restarting continuously when a user adds a port such as 80.
+
+
+## Unreleased — OpenVPN forwarding
+
+- Import self-contained OpenVPN profiles (certificate or username/password auth)
+  through the peer page; choose OpenVPN when adding or editing managed forwards.
+- Provision independent TLS/tls-crypt OpenVPN UDP systemd servers over existing
+  pinned SSH access, with retained retry credentials and ownership-aware removal.
+- Run TCP/UDP forwards in isolated Docker VPN namespaces with marked routing and
+  prohibit fallback; leave host routing and existing services unchanged.
+- Rebuild the console image to obtain the OpenVPN/iproute2/Xray runtime. See
+  docs/PEERS.md for supported profiles, routing, certificate rotation and session
+  limits. Remote SSH provisioning and arbitrary imported profiles still require
+  environment verification; local VPN validation is recorded below.
+
+
+## Unreleased — Internal OpenVPN
+
+- Add a one-checkbox Internal OpenVPN setup on Peer servers and Forwarding,
+  with background installation, actionable errors and a ready notification only
+  after authenticated VPN traffic succeeds.
+- Provision a local VPN endpoint and certificates without an external profile
+  or SSH. Keep the endpoint private to a dedicated Docker bridge; no public VPN
+  port or host route/sysctl changes are required.
+- Add an explicit Internal OpenVPN forwarding mode and saved-rule label for
+  TCP/UDP/both, retaining existing forwarding and automatic-selection policies.
+- Protect dependent forwards when disabling, retain credentials for retries and
+  reactivation, and restrict each container to its own runtime/credential mounts.
+- Wait for the same Docker exec readiness command to complete before inspecting
+  its exit code; an in-flight exec reports a null code, not a failed check.
+- Validate real local TLS/data, TCP and UDP forwarding, VPN Internet egress,
+  blocked forwarding when the VPN server stops, and recovery after restart on
+  the target Linux/Docker host. Temporary test forwards leave user inventory
+  unchanged. Remove interrupted probe credentials and owned private networks
+  during their corresponding cleanup/uninstall paths.

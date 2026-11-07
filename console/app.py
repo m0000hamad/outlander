@@ -15,7 +15,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import backup, i18n, ops, ui, peers
+from . import backup, i18n, ops, ui, peers, openvpn_internal
 
 USER = os.environ.get("CONSOLE_USER", "admin")
 PORT = int(os.environ.get("CONSOLE_PORT", "8099"))
@@ -228,6 +228,7 @@ class Handler(BaseHTTPRequestHandler):
             "channels": channels,
             "rules": forwarding.get("rules", []),
             "peers": peers.public(ops.ROOT),
+            "internal_openvpn": openvpn_internal.status(ops.ROOT),
             "hop": forwarding.get("hop", {}),
             "proxy_ports": proxies,
             "proxy_host": public_host,
@@ -306,6 +307,8 @@ class Handler(BaseHTTPRequestHandler):
 
         routes = {
             "/peers/add": self._peers_add,
+            "/peers/openvpn": self._peers_openvpn,
+            "/peers/openvpn-internal": self._peers_openvpn_internal,
             "/peers/test": self._peers_test,
             "/peers/provision": self._peers_provision,
             "/peers/remove-transport": self._peers_remove_transport,
@@ -507,6 +510,9 @@ class Handler(BaseHTTPRequestHandler):
         return "/", message, level
 
     def _forwarding_add(self, form: dict[str, str]) -> tuple[str, str, str]:
+        if form.get("mode") == "openvpn_internal":
+            from .openvpn_internal import forward_form
+            form = forward_form(ops.ROOT, form)
         if form.get("mode") == "auto":
             summary = ops.add_auto_forward(form)
             return "/forwarding", self._tr("flash.forward_added", summary=summary), "ok"
@@ -561,6 +567,19 @@ class Handler(BaseHTTPRequestHandler):
             message += f" ({tunnel_detail})"
         ops.remember("apply", message)
         return "/forwarding", message, "ok" if tunnel_ok else "err"
+
+    def _peers_openvpn_internal(self, form: dict[str, str]) -> tuple[str, str, str]:
+        from . import openvpn_internal
+        enabled = form.get("enabled") == "1"
+        peer_id = openvpn_internal.ensure_peer(ops.ROOT)
+        peers.start_job(ops.ROOT, peer_id, "internal", enabled=enabled)
+        target = form.get("return_to", "/peers")
+        return target if target in {"/peers", "/forwarding"} else "/peers", self._tr("internal.started"), "ok"
+
+    def _peers_openvpn(self, form: dict[str, str]) -> tuple[str, str, str]:
+        from .openvpn import import_profile
+        import_profile(ops.ROOT, form)
+        return "/peers", "OpenVPN profile saved / کانفیگ OpenVPN ذخیره شد", "ok"
 
     def _peers_add(self, form: dict[str, str]) -> tuple[str, str, str]:
         peers.save_server(ops.ROOT, form)

@@ -151,6 +151,8 @@ def csrf_input(token: str) -> str:
 
 def _mode_label(rule: dict, lang: str) -> str:
     mode = rule.get("mode") or "nft"
+    if mode == "peer" and rule.get("transport") == "openvpn_internal":
+        return t(lang, "fw.mode_openvpn_internal")
     if mode == "peer":
         return f"{t(lang, 'fw.mode_peer')} · {rule.get('transport', '')}"
     resolved = str(rule.get("resolved") or "")
@@ -308,13 +310,13 @@ def rule_editor(ctx: dict, index: int, rule: dict) -> str:
         choices = "".join(f'<option value="{esc(value)}" {"selected" if value == selected else ""}>{esc(title)}</option>'
                           for value, title in options)
         return f'<div class="field"><label for="{prefix}-{name}">{esc(label)}</label><select id="{prefix}-{name}" name="{name}">{choices}</select></div>'
-    modes = [(key, t(lang, "fw.mode_" + key)) for key in ("auto", "nft", "dokodemo", "peer")]
+    modes = [(key, t(lang, "fw.mode_" + key)) for key in ("auto", "nft", "dokodemo", "peer", "openvpn_internal")]
     body = (f'<form class="rule-editor" method="post" action="/forwarding/update">{csrf_input(ctx["csrf"])}'
             f'<input type="hidden" name="index" value="{index}">'
             f'<input type="hidden" name="rule_token" value="{edit_token(rule)}">'
             '<div class="row">'
             + select("proto", t(lang, "common.protocol"), [(p, p) for p in ("tcp", "udp", "both")], rule.get("proto", "tcp"))
-            + select("mode", t(lang, "fw.mode"), modes, rule.get("mode") or "nft"))
+            + select("mode", t(lang, "fw.mode"), modes, ("openvpn_internal" if rule.get("transport") == "openvpn_internal" and rule.get("mode") == "peer" else rule.get("mode") or "nft")))
     for name, label in (("listen_ip", "common.listen_ip"), ("listen", "fw.listen_port"), ("target", "common.target")):
         body += (f'<div class="field"><label for="{prefix}-{name}">{esc(t(lang, label))}</label>'
                  f'<input id="{prefix}-{name}" name="{name}" class="mono" value="{esc(rule.get(name, ""))}"'
@@ -327,7 +329,7 @@ def rule_editor(ctx: dict, index: int, rule: dict) -> str:
                     f'{" selected" if peer["id"] == rule.get("peer_id") else ""}>{esc(peer["name"])} · {esc(peer["host"])}</option>')
     body += (f'<div class="field"><label for="{prefix}-peer_id">{esc(t(lang, "peer.server"))}</label>'
              f'<select id="{prefix}-peer_id" name="peer_id">{options}</select></div>'
-             + select("transport", t(lang, "peer.transport"), [("reality", "REALITY"), ("xhttp", "XHTTP + REALITY"), ("ssh", "SSH (TCP)")], rule.get("transport", "reality")))
+             + select("transport", t(lang, "peer.transport"), [("reality", "REALITY"), ("xhttp", "XHTTP + REALITY"), ("ssh", "SSH (TCP)"), ("openvpn", "OpenVPN"), ("openvpn_internal", t(lang, "internal.title"))], rule.get("transport", "reality")))
     body += (f'</div><div class="row" style="margin-top:12px"><button class="btn ok" type="submit">{esc(t(lang, "fw.save_edit"))}</button>'
              f'<button class="btn ghost" type="button" onclick="this.form.reset();this.form.elements.mode.dispatchEvent(new Event(\'change\'));document.getElementById(\'{prefix}\').hidden=true">{esc(t(lang, "fw.cancel"))}</button>'
              f'<span class="tiny muted">{esc(t(lang, "fw.edit_note"))}</span></div></form>')
@@ -429,6 +431,7 @@ def forwarding(ctx: dict) -> str:
         f'<option value="{esc(peer["id"])}" data-transports="{esc(",".join(k for k,p in peer.get("transports", {}).items() if p.get("status") == "ready"))}">{esc(peer["name"])} · {esc(peer["host"])}</option>'
         for peer in ctx.get("peers", []) if any(p.get("status") == "ready" for p in peer.get("transports", {}).values())
     )
+    internal_disabled = "" if ctx.get("internal_openvpn", {}).get("state") == "ready" else " disabled"
     add_card = (
         f'<div class="card"><h2>{esc(t(lang, "fw.add_title"))}</h2>'
         f'<p>{esc(t(lang, "fw.hint"))}</p>'
@@ -441,14 +444,15 @@ def forwarding(ctx: dict) -> str:
         f'<option value="auto">{esc(t(lang, "fw.mode_auto"))}</option>'
         f'<option value="nft">{esc(t(lang, "fw.mode_nft"))}</option>'
         f'<option value="dokodemo">{esc(t(lang, "fw.mode_dokodemo"))}</option>'
-        f'<option value="peer">{esc(t(lang, "fw.mode_peer"))}</option></select></div>'
+        f'<option value="peer">{esc(t(lang, "fw.mode_peer"))}</option>'
+        f'<option value="openvpn_internal"{internal_disabled}>{esc(t(lang, "fw.mode_openvpn_internal"))}</option></select></div>'
         f'<div class="field"><label>{esc(t(lang, "common.listen_ip"))}</label><input name="listen_ip" placeholder="203.0.113.5" class="mono"></div>'
         f'<div class="field"><label>{esc(t(lang, "fw.listen_port"))}</label><input name="listen" placeholder="443 / 50000-50100 / *" class="mono" required></div>'
         f'<div class="field"><label>{esc(t(lang, "common.target"))}</label><input name="target" placeholder="10.0.0.5:443" class="mono" required></div></div>'
         f'<div class="row peer-fields" style="margin-bottom:12px" hidden><div class="field"><label for="forward-peer">{esc(t(lang, "peer.server"))}</label>'
         f'<select id="forward-peer" name="peer_id">{peer_options}</select></div>'
         f'<div class="field"><label for="forward-transport">{esc(t(lang, "peer.transport"))}</label><select id="forward-transport" name="transport">'
-        '<option value="reality">REALITY</option><option value="xhttp">XHTTP + REALITY</option><option value="ssh">SSH (TCP)</option></select></div>'
+        '<option value="reality">REALITY</option><option value="xhttp">XHTTP + REALITY</option><option value="ssh">SSH (TCP)</option><option value="openvpn">OpenVPN</option><option value="openvpn_internal">Internal OpenVPN / OpenVPN داخلی</option></select></div>'
         f'<a href="/peers">{esc(t(lang, "peer.manage"))}</a></div>'
         f'<p class="tiny muted" style="margin:-2px 0 10px">{esc(t(lang, "fw.auto_note"))}</p>'
         f'<button class="btn" type="submit">{esc(t(lang, "fw.add_apply"))}</button></form></div>'
@@ -500,7 +504,7 @@ def forwarding(ctx: dict) -> str:
     body = (
         f"<h1>{esc(t(lang, 'fw.title'))}</h1>"
         f'<p class="sub">{esc(t(lang, "fw.subtitle"))}</p>'
-        f'{proxy_card}{cf_card}<div style="height:14px"></div>{add_card}<div style="height:14px"></div>{hop_card}{table}'
+        f'{internal_openvpn_card(ctx, "/forwarding")}{proxy_card}{cf_card}<div style="height:14px"></div>{add_card}<div style="height:14px"></div>{hop_card}{table}'
         '<script>document.querySelectorAll("form.rule-editor").forEach(form=>{'
         'const mode=form.elements.mode,peer=form.elements.peer_id,transport=form.elements.transport;'
         'function sync(){const managed=mode.value==="peer";form.querySelector(".edit-peer-fields").hidden=!managed;'
@@ -514,11 +518,33 @@ def forwarding(ctx: dict) -> str:
     return layout(t(lang, "fw.title"), body, "/forwarding", ctx["flash"], lang, ctx["csrf"])
 
 
+def internal_openvpn_card(ctx: dict, return_to: str) -> str:
+    lang = ctx["lang"]
+    state = ctx.get("internal_openvpn", {"state": "disabled", "enabled": False})
+    busy = state["state"] == "working"
+    checked = " checked" if state.get("enabled") else ""
+    disabled = " disabled" if busy else ""
+    body = (f'<section class="card" style="margin-bottom:14px"><h2>{esc(t(lang, "internal.title"))}</h2>'
+        f'<p>{esc(t(lang, "internal.hint"))}</p><form method="post" action="/peers/openvpn-internal">'
+        f'{csrf_input(ctx["csrf"])}<input type="hidden" name="return_to" value="{esc(return_to)}">'
+        '<div class="row" style="margin-top:12px"><label style="display:flex;align-items:center;gap:8px">'
+        f'<input style="width:auto" type="checkbox" name="enabled" value="1"{checked}{disabled} onchange="this.form.requestSubmit()">'
+        f'{esc(t(lang, "internal.enable"))}</label>'
+        f'<button class="btn" type="submit"{disabled}>{esc(t(lang, "internal.apply"))}</button></div></form>'
+        f'<p role="status" aria-live="polite" style="margin-top:12px">{esc(t(lang, "internal." + state["state"]))}</p>')
+    if state["state"] in {"error", "stopped"} or state.get("warning"):
+        body += f'<p class="tiny">{esc(state.get("message", ""))}</p>'
+    if busy:
+        body += '<script>setTimeout(()=>location.reload(),3000)</script>'
+    return body + '</section>'
+
+
 def peer_servers(ctx: dict) -> str:
     lang = ctx["lang"]
     label = lambda key: esc(t(lang, "peer." + key))
     csrf = csrf_input(ctx["csrf"])
     body = f'<h1>{label("title")}</h1><p class="sub">{label("hint")}</p>'
+    body += internal_openvpn_card(ctx, "/peers")
     body += (f'<div class="card"><h2>{label("add")}</h2><form method="post" action="/peers/add" autocomplete="off">{csrf}'
         f'<div class="row"><div class="field"><label for="peer-name">{label("name")}</label><input id="peer-name" name="name" maxlength="80" required></div>'
         f'<div class="field"><label for="peer-host">{label("address")}</label><input id="peer-host" class="mono" name="host" required placeholder="203.0.113.10"></div>'
@@ -529,10 +555,26 @@ def peer_servers(ctx: dict) -> str:
         f'<div class="field"><label for="peer-key">{label("key")}</label><textarea id="peer-key" name="private_key" spellcheck="false" maxlength="32768" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea></div></div>'
         f'<p class="tiny">{label("trust")}</p><p class="tiny">{label("secure")}</p>'
         f'<button class="btn" type="submit">{label("save")}</button></form></div>')
+    body += (f'<div class="card"><h2>OpenVPN · واردکردن کانفیگ / Import profile</h2>'
+        f'<form method="post" action="/peers/openvpn" autocomplete="off">{csrf}'
+        '<div class="field"><label>Name / نام<input name="name" maxlength="80" required></label></div>'
+        '<div class="field"><label>.ovpn<input type="file" accept=".ovpn,.conf" onchange="this.files[0]?.text().then(value=>this.form.elements.ovpn.value=value)"><textarea name="ovpn" required maxlength="131072" spellcheck="false"></textarea></label></div>'
+        '<div class="row"><div class="field"><label>OpenVPN username<input name="vpn_username" autocomplete="off"></label></div>'
+        '<div class="field"><label>OpenVPN password<input name="vpn_password" type="password" autocomplete="new-password"></label></div></div>'
+        '<p>Inline CA + certificate/key or username/password. کانفیگ باید گواهی‌های داخلی داشته باشد.</p>'
+        '<button class="btn" type="submit">Import / واردکردن</button></form></div>')
     if not ctx.get("peers"):
         body += f'<div class="card" style="margin-top:14px"><p>{label("empty")}</p></div>'
     for peer in ctx.get("peers", []):
+        if peer.get("internal"):
+            continue
         peer_id = f'<input type="hidden" name="peer_id" value="{esc(peer["id"])}">'
+        if peer.get("imported"):
+            body += (f'<section class="card" style="margin-top:14px"><h2>{esc(peer["name"])}</h2>'
+                '<p>OpenVPN · Imported / کانفیگ واردشده</p>'
+                f'<form method="post" action="/peers/delete">{csrf}{peer_id}'
+                f'<button class="btn danger" type="submit">{label("delete")}</button></form></section>')
+            continue
         body += (f'<section class="card" style="margin-top:14px"><h2>{esc(peer["name"])}</h2>'
             f'<p class="mono">{esc(peer["username"])}@{esc(peer["host"])}:{esc(peer["ssh_port"])}</p>'
             f'<p>{esc(peer.get("status", "saved"))} · {esc(peer.get("message", ""))}</p>'
@@ -541,8 +583,8 @@ def peer_servers(ctx: dict) -> str:
             f'<form method="post" action="/peers/delete">{csrf}{peer_id}<button class="btn danger" type="submit">{label("delete")}</button></form></div>'
             f'<form method="post" action="/peers/provision" style="margin-top:14px">{csrf}{peer_id}<div class="row">'
             f'<div class="field"><label>{label("transport")}</label><select name="transport"><option value="reality">VLESS + REALITY</option>'
-            '<option value="xhttp">VLESS + XHTTP + REALITY</option><option value="ssh">SSH (TCP)</option></select></div>'
-            f'<div class="field"><label>{label("tunnel_port")}</label><input class="mono" type="number" name="tunnel_port" min="1" max="65535" placeholder="24443 / 24444"></div>'
+            '<option value="xhttp">VLESS + XHTTP + REALITY</option><option value="ssh">SSH (TCP)</option><option value="openvpn">OpenVPN</option></select></div>'
+            f'<div class="field"><label>{label("tunnel_port")}</label><input class="mono" type="number" name="tunnel_port" min="1" max="65535" placeholder="24443 / 24444 / 1194 (OpenVPN UDP)"></div>'
             f'<div class="field"><label>SNI</label><input class="mono" name="sni" placeholder="www.microsoft.com"></div>'
             f'<button class="btn" type="submit">{label("prepare")}</button></div></form>')
         for kind, profile in peer.get("transports", {}).items():
