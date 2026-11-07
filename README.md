@@ -55,7 +55,7 @@ For server migration, use **Backup / Restore** in the web console to export/impo
 | Purpose | Port |
 |---|---|
 | Console | `CONSOLE_PORT` (8099) |
-| Panel | `PANEL_PORT` (2053) |
+| Panel | `PANEL_PORT` (2050) |
 | REALITY | 443/tcp |
 | VLESS+WS behind CDN | 8080/tcp |
 | VLESS+WS+TLS | 8443/tcp |

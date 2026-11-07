@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Retry console image package installation through ftp.debian.org and security.debian.org when the primary Debian repositories fail; treat incomplete index updates as failures and bound network timeouts.
+- Change the default panel port from 2053 to 2050 in bootstrap, console/CLI fallbacks, uninstall rules and setup documentation. Existing installations keep their configured port.
+
 - Uninstall now reports peer tunnel services owned by other installations instead of leaving them
   silently, and the new `--purge-peers` option removes every `ol-peer-*` container on the host plus
   `/etc/outlander-peers` for a complete cleanup.

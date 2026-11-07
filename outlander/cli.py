@@ -164,7 +164,7 @@ def cmd_panel_patch(args: argparse.Namespace) -> int:
 
     legacy = bool(args.db) or panel.has_legacy_template(db)
     if not legacy:
-        base = args.base or f"http://127.0.0.1:{env.get('PANEL_PORT', '2053')}"
+        base = args.base or f"http://127.0.0.1:{env.get('PANEL_PORT', '2050')}"
         try:
             summary = panel.patch_api(
                 base,

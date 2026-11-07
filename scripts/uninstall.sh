@@ -170,7 +170,7 @@ if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: a
   say "removing ufw rules added by install.sh"
   for rule in \
     "443/tcp" "8080/tcp" "8443/tcp" "2087/tcp" "8388/tcp" "8388/udp" \
-    "${PANEL_PORT:-2053}/tcp" "${CONSOLE_PORT:-8099}/tcp" \
+    "${PANEL_PORT:-2050}/tcp" "${CONSOLE_PORT:-8099}/tcp" \
     "${HY2_PORT:-8443}/udp" "20000:40000/udp"; do
     ufw --force delete allow "$rule" >/dev/null 2>&1 || true
   done

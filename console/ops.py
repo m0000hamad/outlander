@@ -760,7 +760,7 @@ def _reserved_ports() -> set[int]:
 
 def panel_client() -> panel.PanelClient:
     env = render.read_env(ROOT)
-    base = f"http://127.0.0.1:{env.get('PANEL_PORT', '2053')}"
+    base = f"http://127.0.0.1:{env.get('PANEL_PORT', '2050')}"
     client = panel.PanelClient(base, env.get("PANEL_USERNAME", "admin"), env.get("PANEL_PASSWORD", ""))
     error: Exception | None = None
     for _ in range(3):
@@ -997,7 +997,7 @@ def patch_panel_route() -> tuple[bool, str]:
     outbound, rule = render.panel_fragments(data, env)
 
     if not panel.has_legacy_template(db):
-        base = f"http://127.0.0.1:{env.get('PANEL_PORT', '2053')}"
+        base = f"http://127.0.0.1:{env.get('PANEL_PORT', '2050')}"
         try:
             summary = panel.patch_api(
                 base,

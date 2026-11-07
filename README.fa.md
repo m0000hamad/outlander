@@ -107,7 +107,7 @@ python3 -m outlander render && docker compose restart gateway
 
 ## ۴) اینباندهای پنل
 
-پنل روی `2053` بالا می‌آید (host network، تا IP واقعی کلاینت دیده شود).
+پنل روی `2050` بالا می‌آید (host network، تا IP واقعی کلاینت دیده شود).
 
 | پروتکل | پورت | نکته |
 |---|---|---|

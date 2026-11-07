@@ -15,7 +15,7 @@ while [[ $# -gt 0 ]]; do
     --panel-port) PANEL_PORT="$2"; shift 2 ;;
     --hy2-domain) HY2_DOMAIN="$2"; shift 2 ;;
     -h|--help)
-      echo "usage: sudo bash scripts/install.sh [--outbound 'vless://...'] [--panel-port 2053] [--hy2-domain hy2.example.com]"
+      echo "usage: sudo bash scripts/install.sh [--outbound 'vless://...'] [--panel-port 2050] [--hy2-domain hy2.example.com]"
       exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 1 ;;
   esac
@@ -179,7 +179,7 @@ CRON_RENEW="15 4 * * * cd ${ROOT} && bash scripts/cert.sh --renew >> /var/log/ou
 
 if command -v ufw >/dev/null 2>&1; then
   ufw allow 22/tcp >/dev/null 2>&1 || true
-  ufw allow "${PANEL_PORT:-2053}/tcp" >/dev/null 2>&1 || true
+  ufw allow "${PANEL_PORT:-2050}/tcp" >/dev/null 2>&1 || true
   ufw allow 443/tcp >/dev/null 2>&1 || true
   ufw allow 8080/tcp >/dev/null 2>&1 || true
   ufw allow 8443/tcp >/dev/null 2>&1 || true
@@ -202,7 +202,7 @@ cat <<EOF
  User      : ${CONSOLE_USER:-admin}
  Password  : ${CONSOLE_PASSWORD}
 
- Panel     : http://${IP}:${PANEL_PORT:-2053}/${PANEL_PATH}
+ Panel     : http://${IP}:${PANEL_PORT:-2050}/${PANEL_PATH}
  Username  : ${PANEL_USERNAME}
  Password  : ${PANEL_PASSWORD}
 
