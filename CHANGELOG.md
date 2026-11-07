@@ -1,5 +1,11 @@
 # Changes
 
+## Unreleased
+
+- Uninstall now reports peer tunnel services owned by other installations instead of leaving them
+  silently, and the new `--purge-peers` option removes every `ol-peer-*` container on the host plus
+  `/etc/outlander-peers` for a complete cleanup.
+
 ## Console 1.6.1 — CSRF fixes
 
 - Include the session CSRF token in the logout form.

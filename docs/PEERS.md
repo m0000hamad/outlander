@@ -90,7 +90,9 @@ the client-to-Outlander leg.
   in private backups. `data/` is excluded from Git. Protect backup archives too.
 - Remove associated forwarding rules before removing a remote tunnel service;
   remove all remote services before deleting the peer's saved credentials. Remote
-  services are removed only by their explicit button, never during local uninstall.
+  services are removed only by their explicit button, never during local uninstall, unless
+`scripts/uninstall.sh --purge-peers` is used: that removes every `ol-peer-*` container on the host
+and `/etc/outlander-peers`.
   The remote UFW allow rule and private config directory are retained after service
   removal so existing administrator firewall policy is not deleted accidentally.
 - Local uninstall removes only managed containers bearing this installation's
