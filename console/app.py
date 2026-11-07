@@ -306,6 +306,7 @@ class Handler(BaseHTTPRequestHandler):
 
         routes = {
             "/peers/add": self._peers_add,
+            "/peers/openvpn": self._peers_openvpn,
             "/peers/test": self._peers_test,
             "/peers/provision": self._peers_provision,
             "/peers/remove-transport": self._peers_remove_transport,
@@ -561,6 +562,11 @@ class Handler(BaseHTTPRequestHandler):
             message += f" ({tunnel_detail})"
         ops.remember("apply", message)
         return "/forwarding", message, "ok" if tunnel_ok else "err"
+
+    def _peers_openvpn(self, form: dict[str, str]) -> tuple[str, str, str]:
+        from .openvpn import import_profile
+        import_profile(ops.ROOT, form)
+        return "/peers", "OpenVPN profile saved / کانفیگ OpenVPN ذخیره شد", "ok"
 
     def _peers_add(self, form: dict[str, str]) -> tuple[str, str, str]:
         peers.save_server(ops.ROOT, form)

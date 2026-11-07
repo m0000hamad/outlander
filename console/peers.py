@@ -17,7 +17,7 @@ from pathlib import Path
 
 from outlander import forward, probe, render
 
-KINDS = {"ssh": "SSH / TCP", "reality": "VLESS + REALITY", "xhttp": "VLESS + XHTTP + REALITY"}
+KINDS = {"openvpn": "OpenVPN", "ssh": "SSH / TCP", "reality": "VLESS + REALITY", "xhttp": "VLESS + XHTTP + REALITY"}
 IMAGE = "ghcr.io/xtls/xray-core:latest"
 _LOCK = threading.RLock()
 _JOBS: set[str] = set()
@@ -200,6 +200,8 @@ def run_ssh(root: Path, peer: dict, script: str, timeout: int = 30) -> str:
 
 def test_server(root: Path, peer_id: str) -> None:
     peer = get(root, peer_id)
+    if peer.get("imported"):
+        raise PeerError("Imported OpenVPN profiles have no SSH access")
     result = run_ssh(root, peer, "test \"$(id -u)\" = 0 || { echo OUTLANDER_ERROR:root_required >&2; exit 1; }; echo OUTLANDER_OK\n")
     if result != "OUTLANDER_OK":
         raise PeerError("Unexpected SSH response / پاسخ SSH غیرمنتظره است")
@@ -302,6 +304,8 @@ echo OUTLANDER_READY
 def provision(root: Path, peer_id: str, kind: str, port: str = "", sni: str = "") -> None:
     if kind not in KINDS:
         raise PeerError("Unknown tunnel / نوع تونل نامعتبر است")
+    if get(root, peer_id).get("imported"):
+        raise PeerError("Imported profiles have no SSH access")
     test_server(root, peer_id)
     peer = get(root, peer_id)
     previous = peer.get("transports", {}).get(kind, {})
@@ -309,6 +313,10 @@ def provision(root: Path, peer_id: str, kind: str, port: str = "", sni: str = ""
         return  # Never replace or restart a working remote tunnel.
     if kind == "ssh":
         _profile(root, peer_id, kind, {"status": "ready", "message": "SSH ready / آماده"})
+        return
+    if kind == "openvpn":
+        from .openvpn_server import provision
+        provision(root, peer_id, port)
         return
     remote_port = int(port or (24443 if kind == "reality" else 24444))
     sni = sni.strip() or "www.microsoft.com"
@@ -425,7 +433,11 @@ def ensure_ssh(root: Path, peer: dict) -> int:
 def forward_config(rule: dict, peer: dict, socks_port: int = 0) -> dict:
     kind = rule["transport"]
     profile = peer["transports"][kind]
-    if kind == "ssh":
+    if kind == "openvpn":
+        outbound = {"protocol": "freedom", "settings": {"domainStrategy": "UseIPv4",
+                    "finalRules": [{"action": "allow", "ip": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]}]},
+                    "streamSettings": {"sockopt": {"mark": 4242}}}
+    elif kind == "ssh":
         outbound = {"protocol": "socks", "settings": {"servers": [{"address": "127.0.0.1", "port": socks_port}]}}
     else:
         user = {"id": profile["uuid"], "encryption": "none"}
@@ -434,6 +446,8 @@ def forward_config(rule: dict, peer: dict, socks_port: int = 0) -> dict:
         outbound = {"protocol": "vless", "settings": {"vnext": [{"address": peer["host"],
                     "port": profile["port"], "users": [user]}]}, "streamSettings": stream(profile, kind)}
     host, _, port = rule["target"].partition(":")
+    if kind == "openvpn" and host in {"localhost", "127.0.0.1"}:
+        raise PeerError("Use the destination VPN IP instead of loopback for OpenVPN profiles / آدرس مقصد در شبکه VPN را وارد کنید")
     return {"log": {"loglevel": "warning"}, "inbounds": [{"protocol": "dokodemo-door",
             "listen": "0.0.0.0", "port": int(rule["listen"]), "settings": {"address": host,
             "port": int(port), "network": "tcp,udp" if rule["proto"] == "both" else rule["proto"]},
@@ -453,6 +467,9 @@ def create_forward(root: Path, rule: dict, *, probe_only: bool = False) -> None:
     name = forward_name(rule)
     if _owned(root, name):
         raise PeerError("Forward already exists / فوروارد از قبل موجود است")
+    if rule["transport"] == "openvpn":
+        from .openvpn import create_forward as create_vpn_forward
+        return create_vpn_forward(root, rule, peer, probe_only)
     socks_port = ensure_ssh(root, peer) if rule["transport"] == "ssh" else 0
     folder = directory(root) / "forwards" / rule["peer_rule_id"]
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -513,6 +530,8 @@ def delete_forward(root: Path, rule: dict) -> None:
             raise PeerError("Could not stop forward / توقف فوروارد ناموفق بود")
     config = directory(root) / "forwards" / rule["peer_rule_id"] / "config.json"
     config.unlink(missing_ok=True)
+    for filename in ("client.ovpn", "auth.txt"):
+        (config.parent / filename).unlink(missing_ok=True)
 
 
 def measure_target(root: Path, peer: dict, kind: str, host: str, port: int) -> float | None:
@@ -586,7 +605,7 @@ def delete_server(root: Path, peer_id: str) -> None:
         if peer_id in _JOBS or any(r.get("peer_id") == peer_id for r in forward.load(root)["rules"]):
             raise PeerError("Remove server forwards and wait for operations first / ابتدا فورواردهای این سرور را حذف کنید")
         peer = get(root, peer_id)
-        if any(p.get("status") == "ready" and k != "ssh" for k, p in peer.get("transports", {}).items()):
+        if any(p.get("status") == "ready" and k != "ssh" and not peer.get("imported") for k, p in peer.get("transports", {}).items()):
             raise PeerError("Remove remote tunnel services first / ابتدا سرویس‌های تونل سمت مقابل را حذف کنید")
         process = _SSH.pop(str(root) + peer_id, None)
         if process and process.poll() is None:
@@ -606,7 +625,11 @@ def remove_transport(root: Path, peer_id: str, kind: str) -> None:
     if any(r.get("peer_id") == peer_id and r.get("transport") == kind for r in forward.load(root)["rules"]):
         raise PeerError("Remove this tunnel's forwards first / ابتدا فورواردهای این تونل را حذف کنید")
     peer = get(root, peer_id)
-    if kind != "ssh" and kind in peer.get("transports", {}):
+    if kind == "openvpn":
+        if not peer.get("imported"):
+            from .openvpn_server import remove
+            remove(root, peer_id)
+    elif kind != "ssh" and kind in peer.get("transports", {}):
         instance = load(root)["instance"]
         name = f"ol-peer-{instance}-{peer_id}-{kind}"
         run_ssh(root, peer, f'''set -eu

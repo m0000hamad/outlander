@@ -1,12 +1,15 @@
+FROM ghcr.io/xtls/xray-core:latest AS xray
 FROM python:3.12-slim-trixie
 
 # Use Debian's Certbot and plugin together; building must not depend on PyPI.
 RUN apt-get -o Acquire::Retries=3 update \
     && apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
-       nftables iptables ca-certificates certbot python3-certbot-dns-cloudflare openssh-client sshpass openssl \
+       nftables iptables ca-certificates certbot python3-certbot-dns-cloudflare openssh-client sshpass openssl openvpn iproute2 \
     && certbot --version \
     && certbot plugins --text | grep -q 'dns-cloudflare' \
     && rm -rf /var/lib/apt/lists/*
+
+COPY --from=xray /usr/local/bin/xray /usr/local/bin/xray
 
 WORKDIR /repo
 ENV PYTHONUNBUFFERED=1 \

@@ -110,3 +110,16 @@ service now runs with only `NET_BIND_SERVICE` and `no-new-privileges`, with all
 other capabilities dropped. Managed local/remote listeners use that same limited
 configuration only when a privileged port is requested. This avoids the official
 non-root image restarting continuously when a user adds a port such as 80.
+
+
+## Unreleased — OpenVPN forwarding
+
+- Import self-contained OpenVPN profiles (certificate or username/password auth)
+  through the peer page; choose OpenVPN when adding or editing managed forwards.
+- Provision independent TLS/tls-crypt OpenVPN UDP systemd servers over existing
+  pinned SSH access, with retained retry credentials and ownership-aware removal.
+- Run TCP/UDP forwards in isolated Docker VPN namespaces with marked routing and
+  prohibit fallback; leave host routing and existing services unchanged.
+- Rebuild the console image to obtain the OpenVPN/iproute2/Xray runtime. See
+  docs/PEERS.md for supported profiles, routing, certificate rotation and session
+  limits. Live Linux/OpenVPN deployment still requires environment verification.
