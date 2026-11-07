@@ -1,5 +1,11 @@
 # Web console
 
+The Forwarding page shows sent, received and total usage per rule. Refresh manually or leave automatic refresh enabled (five seconds). Updating counters does not reload the page or discard an open rule editor.
+
+Usage counts IP bytes on the client-facing connection, including packet overhead and retransmissions, rather than decrypted payload bytes as in Xray's API. Sent means client to target; received means target to client. Accounting covers DNAT, gateway and managed/automatic tunnels. It starts when this version of the console runs; previous traffic is unavailable. Hover over a counter for its start time.
+
+Totals persist in `data/console/forward-traffic.json` across restarts and automatic route switches. Changing the listening address/port, protocol or destination creates a new series. A background worker samples even when the page is closed. The console requires its existing host-network and NET_ADMIN permissions plus nftables. If collection fails, the page marks the displayed values stale instead of reporting zero. Historical totals are excluded from portable settings backups.
+
 `http://<server-ip>:8099` - credentials come from `.env` (`CONSOLE_USER`, `CONSOLE_PASSWORD`).
 The installer prints them at the end of the run.
 

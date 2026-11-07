@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
 import secrets
 import shutil
@@ -15,7 +16,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import backup, i18n, ops, ui, peers
+from . import backup, i18n, ops, ui, peers, traffic
 
 USER = os.environ.get("CONSOLE_USER", "admin")
 PORT = int(os.environ.get("CONSOLE_PORT", "8099"))
@@ -261,6 +262,9 @@ class Handler(BaseHTTPRequestHandler):
         token = self._session()
         if not token:
             return self._redirect("/login")
+        if path == "/forwarding/traffic":
+            return self._send(200, json.dumps(traffic.sample(ops.ROOT)), "application/json; charset=utf-8",
+                              headers={"Cache-Control": "no-store"})
         if path == "/backup/download":
             return self._backup_download()
         context = self._context(token, params, include_panel=path not in {"/peers", "/backup"})
@@ -701,6 +705,7 @@ def main() -> int:
     password()
     ops.start_auto_worker()
     peers.start_worker(ops.ROOT)
+    traffic.start_worker(ops.ROOT)
     server = ThreadingHTTPServer((BIND, PORT), Handler)
     server.daemon_threads = True
     print(f"[console] listening on http://{BIND}:{PORT} user={USER}", flush=True)

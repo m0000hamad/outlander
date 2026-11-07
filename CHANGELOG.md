@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Show sent, received and total IP bytes for each forwarding row, with manual refresh and automatic polling every five seconds. Account on the client-facing connection for direct DNAT, gateway and managed peer routes using an independent nftables counter table without counting the encrypted tunnel leg twice or changing traffic verdicts.
+- Persist forwarding usage in `data/console/forward-traffic.json` across console restarts, kernel counter resets and automatic transport changes. New endpoint identities start a new series; past consumption cannot be recovered. Sample in the background even without an open browser; an abrupt host failure may lose the latest unsaved interval. Settings migration backups exclude traffic history.
+- Authenticate the usage endpoint, disable response caching, show a stale warning on collection errors, and remove the accounting table on uninstall.
+
 - Append the server-local date and time to console settings backup download filenames, matching the existing full-backup naming convention.
 - Give the Compose tunnel and newly created managed peer/forward containers the same 1,048,576 open-file soft/hard limits as the gateway. Existing peer containers require recreation; remote peer services are not changed by a console update alone.
 - Traffic review: generated nftables forwarding rules use accept policies with no packet-rate or byte quotas; tunnel configs define no bandwidth quota. Retain the 1200-byte TCP MSS workaround for low-MTU paths, explicit protocol choices, and existing routing settings. Imported Hysteria2 links can explicitly specify up/down bandwidth values; upstream provider and running host limits are outside this repository check.

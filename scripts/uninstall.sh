@@ -148,6 +148,7 @@ rm -f /etc/systemd/system/outlander-forward.service.d/override.conf >/dev/null 2
 
 # --- nftables ------------------------------------------------------------
 if command -v nft >/dev/null 2>&1; then
+  nft delete table inet outlander_usage >/dev/null 2>&1 || true
   say "flushing nftables tables"
   for table in outlander outlander_cdn; do
     nft delete table ip "$table" >/dev/null 2>&1 || true

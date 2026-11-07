@@ -7,6 +7,7 @@ import json
 from outlander.forward import edit_token
 
 from .i18n import direction, normalise, t
+from .traffic import rule_id
 
 FONT = 'system-ui,"Segoe UI",Tahoma,"Iranian Sans",sans-serif'
 MONO = "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace"
@@ -55,6 +56,7 @@ textarea{{min-height:104px;resize:vertical;font-family:{MONO};direction:ltr;text
 .btn.ok{{border-color:#245c42;background:#123024;color:#b9f0d3}}
 .btn.sm{{padding:6px 10px;font-size:12px}}
 table{{width:100%;border-collapse:collapse;margin-top:6px;font-size:13px}}
+[data-traffic]{{white-space:nowrap}}
 th{{text-align:start;font-weight:500;color:var(--muted);font-size:11.5px;padding:8px 10px;border-bottom:1px solid var(--line)}}
 td{{padding:10px;border-bottom:1px solid #18202d;vertical-align:middle}}
 tr:last-child td{{border-bottom:none}}
@@ -342,7 +344,7 @@ def rule_editor(ctx: dict, index: int, rule: dict) -> str:
     body += (f'</div><div class="row" style="margin-top:12px"><button class="btn ok" type="submit">{esc(t(lang, "fw.save_edit"))}</button>'
              f'<button class="btn ghost" type="button" onclick="this.form.reset();this.form.elements.mode.dispatchEvent(new Event(\'change\'));document.getElementById(\'{prefix}\').hidden=true">{esc(t(lang, "fw.cancel"))}</button>'
              f'<span class="tiny muted">{esc(t(lang, "fw.edit_note"))}</span></div></form>')
-    return f'<tr id="{prefix}" hidden><td colspan="6">{body}</td></tr>'
+    return f'<tr id="{prefix}" hidden><td colspan="9">{body}</td></tr>'
 
 
 def forwarding(ctx: dict) -> str:
@@ -484,6 +486,9 @@ def forwarding(ctx: dict) -> str:
                 f'<td class="mono tiny">{esc(rule.get("listen_ip") or t(lang, "common.all"))}</td>'
                 f'<td class="mono tiny">{esc(rule.get("listen"))}</td>'
                 f'<td class="mono tiny">{esc(rule.get("target"))}</td>'
+                f'<td class="mono tiny" data-traffic="{rule_id(rule)}" data-direction="up">—</td>'
+                f'<td class="mono tiny" data-traffic="{rule_id(rule)}" data-direction="down">—</td>'
+                f'<td class="mono tiny" data-traffic="{rule_id(rule)}" data-direction="total">—</td>'
                 f'<td><div class="row"><button class="btn ghost sm" type="button" onclick="document.getElementById(\'rule-edit-{index}\').hidden=false">{esc(t(lang, "fw.edit"))}</button>'
                 '<form method="post" action="/forwarding/delete" style="margin:0" '
                 f"onsubmit=\"return confirm('{esc(t(lang, 'fw.delete_confirm'))}')\">"
@@ -493,14 +498,20 @@ def forwarding(ctx: dict) -> str:
             )
         table = (
             f'<div class="card" style="margin-top:14px"><h2>{esc(t(lang, "fw.table_title"))}</h2>'
-            f"<table><thead><tr><th>{esc(t(lang, 'common.protocol'))}</th><th>{esc(t(lang, 'fw.col_mode'))}</th><th>{esc(t(lang, 'fw.col_ip'))}</th>"
-            f"<th>{esc(t(lang, 'fw.col_port'))}</th><th>{esc(t(lang, 'fw.col_target'))}</th><th></th></tr></thead>"
-            f'<tbody>{"".join(rows)}</tbody></table>'
+            f"<div style=\"overflow-x:auto\"><table><thead><tr><th>{esc(t(lang, 'common.protocol'))}</th><th>{esc(t(lang, 'fw.col_mode'))}</th><th>{esc(t(lang, 'fw.col_ip'))}</th>"
+            f"<th>{esc(t(lang, 'fw.col_port'))}</th><th>{esc(t(lang, 'fw.col_target'))}</th>"
+            f"<th>{esc(t(lang, 'traffic.up'))}</th><th>{esc(t(lang, 'traffic.down'))}</th><th>{esc(t(lang, 'traffic.total'))}</th><th></th></tr></thead>"
+            f'<tbody>{"".join(rows)}</tbody></table></div>'
             '<div class="row" style="margin-top:12px">'
             '<form method="post" action="/forwarding/apply" style="margin:0">'
             f'{csrf_input(ctx["csrf"])}<button class="btn ok" type="submit">{esc(t(lang, "fw.apply"))}</button></form>'
             f'<span class="tiny muted">{esc(t(lang, "fw.apply_note"))}</span>'
-            "</div></div>"
+            '</div>'
+            f'<div class="row" style="margin-top:12px"><button class="btn ghost sm" id="traffic-refresh" type="button">{esc(t(lang, "traffic.refresh"))}</button>'
+            f'<label><input id="traffic-auto" type="checkbox" style="width:auto" checked> {esc(t(lang, "traffic.auto"))}</label>'
+            '<span id="traffic-status" class="tiny muted" role="status" aria-live="polite"></span></div>'
+            f'<p class="tiny muted">{esc(t(lang, "traffic.note"))}</p></div>'
+            + traffic_script(lang)
         )
     else:
         table = (
@@ -523,6 +534,30 @@ def forwarding(ctx: dict) -> str:
         'form.addEventListener("submit",()=>{form.querySelector("button[type=submit]").disabled=true})});</script>'
     )
     return layout(t(lang, "fw.title"), body, "/forwarding", ctx["flash"], lang, ctx["csrf"])
+
+
+def traffic_script(lang: str) -> str:
+    labels = json.dumps({key: t(lang, "traffic." + key) for key in ("updated", "unavailable", "since")}, ensure_ascii=False)
+    return '<script>(()=>{const labels=' + labels + ';' + r'''
+const button=document.getElementById('traffic-refresh'),auto=document.getElementById('traffic-auto');
+const status=document.getElementById('traffic-status');let busy=false;
+function bytes(value){const units=['B','KiB','MiB','GiB','TiB','PiB'];let i=0;
+while(value>=1024&&i<units.length-1){value/=1024;i++}return value.toFixed(i?2:0)+' '+units[i]}
+async function refresh(){if(busy)return;busy=true;button.disabled=true;
+const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);
+try{const response=await fetch('/forwarding/traffic',{cache:'no-store',signal:controller.signal});
+if(!response.ok||response.redirected)throw Error('unavailable');const data=await response.json();
+if(!data.available)throw Error('unavailable');
+document.querySelectorAll('[data-traffic]').forEach(cell=>{const row=data.rules[cell.dataset.traffic];
+if(!row){cell.textContent='—';cell.removeAttribute('title');return}
+const value=cell.dataset.direction==='total'?row.up+row.down:row[cell.dataset.direction];
+cell.textContent=bytes(value);cell.title=labels.since+' '+new Date(row.since*1000).toLocaleString()});
+status.textContent=labels.updated+' '+new Date(data.updated_at*1000).toLocaleTimeString();
+}catch(error){status.textContent=labels.unavailable}
+finally{clearTimeout(timeout);busy=false;button.disabled=false}}
+button.addEventListener('click',refresh);auto.addEventListener('change',()=>{if(auto.checked)refresh()});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&auto.checked)refresh()});
+setInterval(()=>{if(auto.checked&&!document.hidden)refresh()},5000);refresh();})();</script>'''
 
 
 def peer_servers(ctx: dict) -> str:

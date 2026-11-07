@@ -458,6 +458,30 @@ TRANSLATIONS["en"].update({
 })
 
 
+TRANSLATIONS["fa"].update({
+    "traffic.up": "ارسال به مقصد ↑",
+    "traffic.down": "دریافت از مقصد ↓",
+    "traffic.total": "مصرف کل",
+    "traffic.refresh": "تازه‌سازی مصرف",
+    "traffic.auto": "به‌روزرسانی خودکار (هر ۵ ثانیه)",
+    "traffic.updated": "آخرین به‌روزرسانی:",
+    "traffic.unavailable": "دریافت آمار ناموفق بود؛ اعداد قبلی به‌روز نیستند.",
+    "traffic.since": "شروع شمارش:",
+    "traffic.note": "مصرف هر فوروارد از زمان فعال‌شدن شمارش، شامل سربار بسته‌های شبکه است. ارسال یعنی از کاربر به مقصد؛ دریافت یعنی از مقصد به کاربر. جمع مصرف با راه‌اندازی مجدد حفظ می‌شود؛ تغییر آدرس یا پورت فوروارد شمارش تازه‌ای شروع می‌کند.",
+})
+TRANSLATIONS["en"].update({
+    "traffic.up": "Sent to target ↑",
+    "traffic.down": "Received from target ↓",
+    "traffic.total": "Total usage",
+    "traffic.refresh": "Refresh usage",
+    "traffic.auto": "Auto refresh (every 5 seconds)",
+    "traffic.updated": "Last updated:",
+    "traffic.unavailable": "Usage unavailable; previous values are out of date.",
+    "traffic.since": "Counting since:",
+    "traffic.note": "Per-forward usage starts when accounting is enabled and includes IP packet overhead. Sent means client to target; received means target to client. Totals survive restarts; changing the forward address or port starts a new counter.",
+})
+
+
 def normalise(lang: str | None) -> str:
     value = (lang or "").strip().lower()
     return value if value in LANGS else DEFAULT_LANG
