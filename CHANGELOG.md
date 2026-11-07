@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Append the server-local date and time to console settings backup download filenames, matching the existing full-backup naming convention.
+- Give the Compose tunnel and newly created managed peer/forward containers the same 1,048,576 open-file soft/hard limits as the gateway. Existing peer containers require recreation; remote peer services are not changed by a console update alone.
+- Traffic review: generated nftables forwarding rules use accept policies with no packet-rate or byte quotas; tunnel configs define no bandwidth quota. Retain the 1200-byte TCP MSS workaround for low-MTU paths, explicit protocol choices, and existing routing settings. Imported Hysteria2 links can explicitly specify up/down bandwidth values; upstream provider and running host limits are outside this repository check.
+
 - Retry console image package installation through ftp.debian.org and security.debian.org when the primary Debian repositories fail; treat incomplete index updates as failures and bound network timeouts.
 - Change the default panel port from 2053 to 2050 in bootstrap, console/CLI fallbacks, uninstall rules and setup documentation. Existing installations keep their configured port.
 
