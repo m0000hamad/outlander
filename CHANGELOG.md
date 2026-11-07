@@ -123,3 +123,17 @@ non-root image restarting continuously when a user adds a port such as 80.
 - Rebuild the console image to obtain the OpenVPN/iproute2/Xray runtime. See
   docs/PEERS.md for supported profiles, routing, certificate rotation and session
   limits. Live Linux/OpenVPN deployment still requires environment verification.
+
+
+## Unreleased — Internal OpenVPN
+
+- Add a one-checkbox Internal OpenVPN setup on Peer servers and Forwarding,
+  with background installation, actionable errors and a ready notification only
+  after authenticated VPN traffic succeeds.
+- Provision a local VPN endpoint and certificates without an external profile
+  or SSH. Keep the endpoint private to a dedicated Docker bridge; no public VPN
+  port or host route/sysctl changes are required.
+- Add an explicit Internal OpenVPN forwarding mode and saved-rule label for
+  TCP/UDP/both, retaining existing forwarding and automatic-selection policies.
+- Protect dependent forwards when disabling, retain credentials for retries and
+  reactivation, and restrict each container to its own runtime/credential mounts.

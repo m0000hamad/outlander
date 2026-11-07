@@ -17,7 +17,7 @@ from pathlib import Path
 
 from outlander import forward, probe, render
 
-KINDS = {"openvpn": "OpenVPN", "ssh": "SSH / TCP", "reality": "VLESS + REALITY", "xhttp": "VLESS + XHTTP + REALITY"}
+KINDS = {"openvpn_internal": "Internal OpenVPN / OpenVPN داخلی", "openvpn": "OpenVPN", "ssh": "SSH / TCP", "reality": "VLESS + REALITY", "xhttp": "VLESS + XHTTP + REALITY"}
 IMAGE = "ghcr.io/xtls/xray-core:latest"
 _LOCK = threading.RLock()
 _JOBS: set[str] = set()
@@ -200,8 +200,8 @@ def run_ssh(root: Path, peer: dict, script: str, timeout: int = 30) -> str:
 
 def test_server(root: Path, peer_id: str) -> None:
     peer = get(root, peer_id)
-    if peer.get("imported"):
-        raise PeerError("Imported OpenVPN profiles have no SSH access")
+    if peer.get("imported") or peer.get("internal"):
+        raise PeerError("This OpenVPN entry has no SSH access")
     result = run_ssh(root, peer, "test \"$(id -u)\" = 0 || { echo OUTLANDER_ERROR:root_required >&2; exit 1; }; echo OUTLANDER_OK\n")
     if result != "OUTLANDER_OK":
         raise PeerError("Unexpected SSH response / پاسخ SSH غیرمنتظره است")
@@ -302,8 +302,12 @@ echo OUTLANDER_READY
 
 
 def provision(root: Path, peer_id: str, kind: str, port: str = "", sni: str = "") -> None:
+    if kind == "openvpn_internal":
+        raise PeerError("Use the Internal OpenVPN toggle for this service")
     if kind not in KINDS:
         raise PeerError("Unknown tunnel / نوع تونل نامعتبر است")
+    if get(root, peer_id).get("internal"):
+        raise PeerError("Use the Internal OpenVPN toggle for this entry")
     if get(root, peer_id).get("imported"):
         raise PeerError("Imported profiles have no SSH access")
     test_server(root, peer_id)
@@ -352,6 +356,12 @@ def start_job(root: Path, peer_id: str, action: str, **kwargs) -> None:
         try:
             if action == "test":
                 test_server(root, peer_id)
+            elif action == "internal":
+                from . import openvpn_internal
+                if kwargs["enabled"]:
+                    openvpn_internal.provision(root, peer_id)
+                else:
+                    openvpn_internal.disable(root, peer_id)
             elif action == "provision":
                 provision(root, peer_id, **kwargs)
             else:
@@ -360,6 +370,10 @@ def start_job(root: Path, peer_id: str, action: str, **kwargs) -> None:
         except Exception as exc:
             message = str(exc) if isinstance(exc, PeerError) else "Operation failed; check connection / عملیات ناموفق؛ اتصال را بررسی کنید"
             _update(root, peer_id, status="error", message=message)
+            if action == "internal" and kwargs.get("enabled"):
+                profile = get(root, peer_id).get("transports", {}).get("openvpn_internal")
+                if profile:
+                    _profile(root, peer_id, "openvpn_internal", profile | {"status": "error", "message": message})
             if action == "provision":
                 profile = get(root, peer_id).get("transports", {}).get(kwargs["kind"])
                 if profile:
@@ -433,7 +447,7 @@ def ensure_ssh(root: Path, peer: dict) -> int:
 def forward_config(rule: dict, peer: dict, socks_port: int = 0) -> dict:
     kind = rule["transport"]
     profile = peer["transports"][kind]
-    if kind == "openvpn":
+    if kind in {"openvpn", "openvpn_internal"}:
         outbound = {"protocol": "freedom", "settings": {"domainStrategy": "UseIPv4",
                     "finalRules": [{"action": "allow", "ip": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]}]},
                     "streamSettings": {"sockopt": {"mark": 4242}}}
@@ -446,7 +460,7 @@ def forward_config(rule: dict, peer: dict, socks_port: int = 0) -> dict:
         outbound = {"protocol": "vless", "settings": {"vnext": [{"address": peer["host"],
                     "port": profile["port"], "users": [user]}]}, "streamSettings": stream(profile, kind)}
     host, _, port = rule["target"].partition(":")
-    if kind == "openvpn" and host in {"localhost", "127.0.0.1"}:
+    if kind in {"openvpn", "openvpn_internal"} and host in {"localhost", "127.0.0.1"}:
         raise PeerError("Use the destination VPN IP instead of loopback for OpenVPN profiles / آدرس مقصد در شبکه VPN را وارد کنید")
     return {"log": {"loglevel": "warning"}, "inbounds": [{"protocol": "dokodemo-door",
             "listen": "0.0.0.0", "port": int(rule["listen"]), "settings": {"address": host,
@@ -464,10 +478,14 @@ def create_forward(root: Path, rule: dict, *, probe_only: bool = False) -> None:
     profile = peer.get("transports", {}).get(rule["transport"], {})
     if profile.get("status") != "ready":
         raise PeerError("Prepare this tunnel on the server first / ابتدا این تونل را روی سرور آماده کنید")
+    if rule["transport"] == "openvpn_internal":
+        from . import openvpn_internal
+        if not peer.get("internal") or openvpn_internal.status(root)["state"] != "ready":
+            raise PeerError("Internal OpenVPN is not ready / OpenVPN داخلی آماده نیست")
     name = forward_name(rule)
     if _owned(root, name):
         raise PeerError("Forward already exists / فوروارد از قبل موجود است")
-    if rule["transport"] == "openvpn":
+    if rule["transport"] in {"openvpn", "openvpn_internal"}:
         from .openvpn import create_forward as create_vpn_forward
         return create_vpn_forward(root, rule, peer, probe_only)
     socks_port = ensure_ssh(root, peer) if rule["transport"] == "ssh" else 0
@@ -600,7 +618,8 @@ def cleanup_probes(root: Path) -> None:
 
 
 def delete_server(root: Path, peer_id: str) -> None:
-    get(root, peer_id)
+    if get(root, peer_id).get("internal"):
+        raise PeerError("Use the Internal OpenVPN toggle to disable this service")
     with _LOCK:
         if peer_id in _JOBS or any(r.get("peer_id") == peer_id for r in forward.load(root)["rules"]):
             raise PeerError("Remove server forwards and wait for operations first / ابتدا فورواردهای این سرور را حذف کنید")
@@ -618,6 +637,8 @@ def delete_server(root: Path, peer_id: str) -> None:
 
 
 def remove_transport(root: Path, peer_id: str, kind: str) -> None:
+    if kind == "openvpn_internal":
+        raise PeerError("Use the Internal OpenVPN toggle to disable this service")
     if kind not in KINDS:
         raise PeerError("Unknown tunnel")
     if peer_id in _JOBS:

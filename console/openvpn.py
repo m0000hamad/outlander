@@ -99,9 +99,28 @@ def import_profile(root: Path, form: dict) -> str:
     return peer_id
 
 
+def wait_ready(root: Path, name: str, marker: str, timeout: int):
+    from . import peers
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        info = peers._owned(root, name)
+        if not info or not info.get("State", {}).get("Running"):
+            break
+        status, raw = peers.api("POST", f"/containers/{name}/exec", {"Cmd": ["python3", "-c",
+            f"import pathlib; raise SystemExit(0 if pathlib.Path({marker!r}).exists() else 1)"]})
+        if status == 201:
+            exec_id = json.loads(raw)["Id"]
+            peers.api("POST", f"/exec/{exec_id}/start", {"Detach": False, "Tty": False})
+            status, raw = peers.api("GET", f"/exec/{exec_id}/json")
+            if status == 200 and json.loads(raw).get("ExitCode") == 0:
+                return
+        time.sleep(.5)
+    raise peers.PeerError("OpenVPN connection failed; check profile, credentials, server and firewall / اتصال OpenVPN ناموفق بود")
+
+
 def create_forward(root: Path, rule: dict, peer: dict, probe_only: bool = False):
     from . import peers
-    profile = peer["transports"]["openvpn"]
+    profile = peer["transports"][rule["transport"]]
     folder = peers.directory(root) / "forwards" / rule["peer_rule_id"]
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
     config = peers.forward_config(rule, peer)
@@ -125,7 +144,7 @@ def create_forward(root: Path, rule: dict, peer: dict, probe_only: bool = False)
     payload = {"Image": image, "User": "0:0", "WorkingDir": "/repo", "Labels": labels,
                "Cmd": ["python3", "/runtime.py"], "ExposedPorts": {p: {} for p in ports},
                "Healthcheck": {"Test": ["NONE"]},
-               "HostConfig": {"NetworkMode": "bridge", "CapAdd": ["NET_ADMIN"],
+               "HostConfig": {"NetworkMode": profile["network"] if rule["transport"] == "openvpn_internal" else "bridge", "CapAdd": ["NET_ADMIN"],
                               "Sysctls": {"net.ipv4.conf.all.rp_filter": "2", "net.ipv4.conf.default.rp_filter": "2"},
                               "Devices": [{"PathOnHost": "/dev/net/tun", "PathInContainer": "/dev/net/tun", "CgroupPermissions": "rwm"}],
                               "PortBindings": ports, "RestartPolicy": {"Name": "no" if probe_only else "unless-stopped"},
@@ -141,21 +160,7 @@ def create_forward(root: Path, rule: dict, peer: dict, probe_only: bool = False)
             raise peers.PeerError("Could not start OpenVPN forward")
         # Verify the private listener, even for UDP-only rules, using container
         # exec below rather than the published host port (Docker proxies can bind early).
-        deadline = time.monotonic() + 85
-        while time.monotonic() < deadline:
-            info = peers._owned(root, name)
-            if not info or not info.get("State", {}).get("Running"):
-                break
-            status, raw = peers.api("POST", f"/containers/{name}/exec", {"Cmd": ["python3", "-c",
-                "import pathlib; raise SystemExit(0 if pathlib.Path('/tmp/openvpn-ready').exists() else 1)"]})
-            if status == 201:
-                exec_id = json.loads(raw)["Id"]
-                peers.api("POST", f"/exec/{exec_id}/start", {"Detach": False, "Tty": False})
-                status, raw = peers.api("GET", f"/exec/{exec_id}/json")
-                if status == 200 and json.loads(raw).get("ExitCode") == 0:
-                    return
-            time.sleep(.5)
-        raise peers.PeerError("OpenVPN connection failed; check profile, credentials, server and firewall / اتصال OpenVPN ناموفق بود")
+        wait_ready(root, name, "/tmp/openvpn-ready", 85)
     except BaseException:
         peers.api("DELETE", f"/containers/{name}?force=1")
         raise

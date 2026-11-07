@@ -116,7 +116,7 @@ docker compose build console
 docker compose up -d --no-deps console
 ```
 
-**Existing VPN / internal:** on Peer servers, choose a `.ovpn` file or paste its
+**Existing VPN / imported profile:** on Peer servers, choose a `.ovpn` file or paste its
 contents in **OpenVPN / Import profile**, give it a name and save. The profile
 must contain inline `<ca>` plus `<cert>`/`<key>`, or an inline CA plus
 `auth-user-pass` with credentials entered in the separate fields. External file
@@ -164,3 +164,38 @@ must permit simultaneous sessions if you use the same profile in multiple rules;
 managed servers permit this. Credentials stay private under `data/peers/`, are
 excluded from Git, and are included in private backups. Delete associated forwards
 before deleting the profile or removing its remote service.
+
+
+## Internal OpenVPN on this server
+
+The **Internal OpenVPN / OpenVPN داخلی (اینترنال)** card appears at the top of
+both Peer servers and Forwarding. Check **Enable OpenVPN on this server**. Setup
+runs in the background, the page refreshes while it is working, and reports
+**Ready** only after a real HTTP response traverses an authenticated OpenVPN
+session. No external profile, remote SSH server or manual certificate setup is
+needed. Failures appear on the card and can be retried with the Apply / Retry
+button, preserving existing credentials.
+
+In Forwarding, select **Internal OpenVPN** directly in the mode selector, then
+enter the destination, local listen port and TCP/UDP/both. Existing internal
+rules carry the same explicit label and can be edited like other forwards. The
+mode is unavailable until local setup succeeds. This is a local VPN hop:
+traffic still exits through this server; it does not create a remote egress IP.
+Use destination IPs reachable from this server; loopback destinations are not
+supported by this mode.
+
+The server and each forwarding client run in separate container namespaces on a
+private Docker bridge. The VPN UDP port is not published on the host or opened
+to the Internet. Server IPv4 forwarding and NAT are confined to that namespace;
+no host route, default gateway, sysctl, system OpenVPN service or remote SSH
+configuration is changed. Only configured forward listen ports are published.
+A private health responder binds only to the VPN address and verifies setup
+without depending on an external website. The tunnel uses mutual TLS, tls-crypt
+and generated per-installation credentials.
+
+Uncheck the option to disable the local service. Existing dependent forwards
+must be removed first; a rejected disable leaves the service running. Disabling
+retains private credentials and the empty owned bridge for reactivation. Docker
+restarts enabled containers after a reboot. After restoring settings on another
+server, enable/retry Internal OpenVPN before recreating its forwards. Auto does
+not select this local hop. Runtime credentials remain part of private backups.

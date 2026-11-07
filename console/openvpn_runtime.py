@@ -5,6 +5,60 @@ import socket
 import signal
 import subprocess
 import time
+import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+
+def server():
+    """VPN endpoint and a health responder bound only to its VPN address."""
+    ready = Path("/tmp/openvpn-server-ready")
+    ready.unlink(missing_ok=True)
+    def stop(*_):
+        raise SystemExit(0)
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    metadata = json.loads(Path("/vpn/server.json").read_text())
+    subprocess.run(["iptables", "-t", "nat", "-A", "POSTROUTING", "-s", metadata["subnet"],
+                    "-o", "eth0", "-j", "MASQUERADE"], check=True, capture_output=True)
+    vpn = subprocess.Popen(["openvpn", "--config", "/vpn/server.ovpn", "--verb", "2"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    http = None
+    try:
+        deadline = time.monotonic() + 25
+        while time.monotonic() < deadline:
+            if vpn.poll() is not None:
+                raise RuntimeError("Internal OpenVPN server failed")
+            address = subprocess.run(["ip", "-4", "-o", "addr", "show", "dev", "tun0"], capture_output=True, text=True)
+            if metadata["vpn_ip"] + "/" in address.stdout:
+                break
+            time.sleep(.2)
+        else:
+            raise RuntimeError("Internal OpenVPN server startup timed out")
+        class Health(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(204 if self.path == "/health" else 404)
+                self.end_headers()
+            def log_message(self, *_):
+                pass
+        http = ThreadingHTTPServer((metadata["vpn_ip"], 38080), Health)
+        threading.Thread(target=http.serve_forever, daemon=True).start()
+        ready.touch()
+        while vpn.poll() is None:
+            time.sleep(.5)
+        raise RuntimeError("Internal OpenVPN server stopped")
+    finally:
+        ready.unlink(missing_ok=True)
+        if http:
+            http.shutdown()
+            http.server_close()
+        if vpn.poll() is None:
+            vpn.terminate()
+        try:
+            vpn.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            vpn.kill()
+            vpn.wait()
 
 
 def main():
@@ -82,4 +136,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    server() if sys.argv[1:] == ["server"] else main()

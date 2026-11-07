@@ -172,7 +172,7 @@ def normalise_rule(rule: dict) -> dict:
                 raise ValueError("invalid managed server/rule identifier")
             result[key] = value
         transport = str(rule.get("transport") or "")
-        if transport not in {"ssh", "reality", "xhttp", "openvpn"}:
+        if transport not in {"ssh", "reality", "xhttp", "openvpn", "openvpn_internal"}:
             raise ValueError("invalid managed tunnel type")
         if transport == "ssh" and proto != "tcp":
             raise ValueError("SSH forwarding supports TCP only")
