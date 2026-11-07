@@ -324,6 +324,7 @@ class Handler(BaseHTTPRequestHandler):
             "/cloudflare/save": self._cloudflare_save,
             "/certs/renew": self._certs_renew,
             "/panel/route": self._panel_route,
+            "/panel/update": self._panel_update,
             "/service/action": self._service_action,
         }
         handler = routes.get(path)
@@ -663,6 +664,21 @@ class Handler(BaseHTTPRequestHandler):
             message = self._tr("flash.panel_failed", error=detail)
         ops.remember("panel", message)
         return "/", message, "ok" if ok else "err"
+
+    def _panel_update(self, form: dict[str, str]) -> tuple[str, str, str]:
+        state, detail = ops.update_panel()
+        if state == "missing":
+            message = self._tr("flash.panel_update_failed", error=self._tr("flash.panel_missing"))
+            return "/", message, "err"
+        if state == "failed":
+            return "/", self._tr("flash.panel_update_failed", error=detail), "err"
+        if detail:
+            message = self._tr("flash.panel_updated_warn", error=detail)
+            ops.remember("panel", message)
+            return "/", message, "err"
+        message = self._tr("flash.panel_current" if state == "current" else "flash.panel_updated")
+        ops.remember("panel", message)
+        return "/", message, "ok"
 
     def _service_action(self, form: dict[str, str]) -> tuple[str, str, str]:
         service = form.get("service", "")

@@ -370,6 +370,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
 
 TRANSLATIONS["fa"].update({
+    "dash.update": "به‌روزرسانی پنل",
+    "dash.update_confirm": "پنل از تصویر جدید بازسازی می‌شود و چند ثانیه قطعی دارد. ادامه می‌دهید؟",
+    "flash.panel_updated": "پنل به آخرین نسخه به‌روزرسانی شد و مسیر گیت‌وی دوباره اعمال شد.",
+    "flash.panel_current": "پنل از قبل آخرین نسخه است.",
+    "flash.panel_updated_warn": "پنل به‌روزرسانی شد، اما اعمال مسیر گیت‌وی ناموفق بود: {error}",
+    "flash.panel_update_failed": "به‌روزرسانی پنل ناموفق بود: {error}",
+    "flash.panel_missing": "کانتینر پنل پیدا نشد؛ ابتدا سرویس را بالا بیاورید.",
     "fw.auto_note": "خودکار: REALITY و XHTTP آماده در اولویت، سپس SSH فقط برای TCP و در آخر دکودمو. در هر رده مسیر سالم با زمان تست کمتر انتخاب می‌شود؛ تغییر مسیر برای بهبود بیش از ۲۰٪ و حداقل ۵۰ میلی‌ثانیه است. Direct انتخاب نمی‌شود. رمزگذاری دکودمو به خروجی گیت‌وی وابسته است؛ عدد جدول زمان تست است، نه سرعت دانلود.",
     "fw.auto_path": "خودکار · مسیر فعلی: {path}",
     "fw.edit": "ویرایش", "fw.cancel": "انصراف", "fw.save_edit": "ذخیره و اعمال",
@@ -407,6 +414,13 @@ TRANSLATIONS["fa"].update({
     "backup.restored_warning": "تنظیمات بازیابی شد، اما فعال‌سازی همهٔ فورواردها یا سرویس‌ها کامل نشد.",
 })
 TRANSLATIONS["en"].update({
+    "dash.update": "Update panel",
+    "dash.update_confirm": "The panel is recreated from the latest image and will be offline for a few seconds. Continue?",
+    "flash.panel_updated": "Panel updated to the latest image and the gateway route was re-applied.",
+    "flash.panel_current": "Panel is already up to date.",
+    "flash.panel_updated_warn": "Panel updated, but re-applying the gateway route failed: {error}",
+    "flash.panel_update_failed": "Panel update failed: {error}",
+    "flash.panel_missing": "panel container not found; bring the service up first",
     "fw.auto_note": "Auto: prepared REALITY/XHTTP first, SSH for TCP next, then Dokodemo. Choose the lowest measured check time within each tier; switching needs a 20% improvement and at least 50 ms. Direct is excluded. Dokodemo encryption depends on the gateway outbound. The displayed check time is not download speed.",
     "fw.auto_path": "Auto → {path}",
     "fw.edit": "Edit", "fw.cancel": "Cancel", "fw.save_edit": "Save and apply",

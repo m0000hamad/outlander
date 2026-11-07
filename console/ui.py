@@ -182,6 +182,23 @@ def dashboard(ctx: dict) -> str:
         ("singbox", "dash.singbox", "dash.singbox_hint"),
     ):
         info = states.get(key, {"state": "unknown", "detail": ""})
+        actions = (
+            '<form method="post" action="/service/action" class="row" style="margin:0">'
+            f'{csrf_input(ctx["csrf"])}'
+            f'<input type="hidden" name="service" value="{esc(key)}">'
+            f'<button class="btn ghost sm" name="action" value="restart">{esc(t(lang, "dash.restart"))}</button>'
+            f'<button class="btn ghost sm" name="action" value="start">{esc(t(lang, "dash.start"))}</button>'
+            f'<button class="btn ghost sm" name="action" value="stop">{esc(t(lang, "dash.stop"))}</button>'
+            "</form>"
+        )
+        if key == "panel":
+            actions += (
+                '<form method="post" action="/panel/update" style="margin-top:8px"'
+                f" onsubmit=\"return confirm('{esc(t(lang, 'dash.update_confirm'))}')\">"
+                f'{csrf_input(ctx["csrf"])}'
+                f'<button class="btn sm" type="submit">{esc(t(lang, "dash.update"))}</button>'
+                "</form>"
+            )
         cards.append(
             '<div class="card">'
             f'<h2>{esc(t(lang, label_key))}</h2>'
@@ -190,13 +207,7 @@ def dashboard(ctx: dict) -> str:
             f'{badge(info.get("state", "unknown"), lang)}'
             f'<span class="tiny muted">{esc(info.get("detail", ""))}</span></div>'
             '<div class="hr"></div>'
-            '<form method="post" action="/service/action" class="row" style="margin:0">'
-            f'{csrf_input(ctx["csrf"])}'
-            f'<input type="hidden" name="service" value="{esc(key)}">'
-            f'<button class="btn ghost sm" name="action" value="restart">{esc(t(lang, "dash.restart"))}</button>'
-            f'<button class="btn ghost sm" name="action" value="start">{esc(t(lang, "dash.start"))}</button>'
-            f'<button class="btn ghost sm" name="action" value="stop">{esc(t(lang, "dash.stop"))}</button>'
-            "</form></div>"
+            f"{actions}</div>"
         )
 
     enabled = sum(1 for channel in ctx["channels"] if channel["enabled"])
