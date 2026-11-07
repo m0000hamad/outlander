@@ -99,6 +99,16 @@ credentials from `.env`. If the panel login is protected by 2FA, use the panel U
 To verify, open **Settings → Xray Configs** and look for the `ol-gateway` outbound and the rule. If
 a panel upgrade regenerates the template, run `make panel` again.
 
+The console dashboard also has **Update panel** on the panel card: it pulls
+`ghcr.io/mhsanaei/3x-ui:latest`, recreates `ol-panel` with the same configuration, and re-applies
+this patch automatically. The old container is kept until the new one answers, then removed; on a
+start failure the console renames it back. The panel is offline for a few seconds during the update.
+The same thing from a shell:
+
+```bash
+docker compose pull panel && docker compose up -d --no-deps panel && make panel
+```
+
 If you want panel-managed split routing (e.g. domestic sites direct from the panel instead of the
 gateway), add rules **above** the catch-all: rules are evaluated top-down.
 

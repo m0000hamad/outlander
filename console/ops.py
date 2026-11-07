@@ -16,6 +16,7 @@ import subprocess
 import threading
 import sys
 import time
+import urllib.parse
 from pathlib import Path
 
 ROOT = Path(os.environ.get("OUTLANDER_ROOT", "/repo")).resolve()
@@ -31,6 +32,7 @@ STATE_FILE = Path(os.environ.get("CONSOLE_STATE", "/data/state.json"))
 HOST_UID = int(os.environ.get("HOST_UID", "0") or 0)
 HOST_GID = int(os.environ.get("HOST_GID", "0") or 0)
 _FORWARD_LOCK = threading.RLock()
+_PANEL_LOCK = threading.RLock()
 
 
 def forward_transaction(function):
@@ -74,10 +76,10 @@ class _UnixConnection(http.client.HTTPConnection):
         self.sock = sock
 
 
-def _docker(method: str, path: str, payload: dict | None = None) -> tuple[int, bytes]:
+def _docker(method: str, path: str, payload: dict | None = None, timeout: float = 25) -> tuple[int, bytes]:
     if not Path(DOCKER_SOCK).exists():
         raise DockerUnavailable("docker socket is not mounted")
-    connection = _UnixConnection(DOCKER_SOCK)
+    connection = _UnixConnection(DOCKER_SOCK, timeout=timeout)
     try:
         body = json.dumps(payload).encode() if payload is not None else None
         connection.request(method, path, body=body, headers={"Content-Type": "application/json"} if body else {})
@@ -1031,3 +1033,135 @@ def patch_panel_route() -> tuple[bool, str]:
             except Exception:
                 pass
         return False, f"{type(exc).__name__}: {exc}"
+
+
+_CLONE_CONFIG_KEYS = (
+    "Hostname", "Domainname", "User", "AttachStdin", "AttachStdout", "AttachStderr",
+    "ExposedPorts", "Tty", "OpenStdin", "StdinOnce", "Env", "Cmd", "Healthcheck",
+    "Image", "Volumes", "WorkingDir", "Entrypoint", "Labels", "StopSignal", "StopTimeout",
+)
+
+
+def split_image(reference: str) -> tuple[str, str]:
+    """Split ``registry/repo:tag`` without mistaking a registry port for a tag."""
+    name, _, digest = reference.partition("@")
+    if digest:
+        return reference, ""
+    head, _, last = name.rpartition("/")
+    repo, separator, tag = last.rpartition(":")
+    if separator and repo:
+        return (f"{head}/{repo}" if head else repo), tag
+    return name, "latest"
+
+
+def clone_payload(info: dict) -> dict:
+    """Container-create body that reproduces an inspected container."""
+    source = info.get("Config") or {}
+    payload = {key: copy.deepcopy(source[key]) for key in _CLONE_CONFIG_KEYS if key in source}
+    host = copy.deepcopy(info.get("HostConfig") or {})
+    host.pop("ContainerID", None)
+    payload["HostConfig"] = host
+    return payload
+
+
+def _docker_reason(body: bytes, status: int) -> str:
+    text = body.decode("utf-8", "replace").strip()
+    if not text:
+        return f"http {status}"
+    try:
+        payload = json.loads(text)
+    except ValueError:
+        return text[:300]
+    detail = payload.get("message") or payload.get("error") or payload
+    return str(detail)[:300]
+
+
+def _pull_image(repo: str, tag: str) -> None:
+    query = urllib.parse.urlencode({"fromImage": repo, "tag": tag} if tag else {"fromImage": repo})
+    status, body = _docker("POST", "/images/create?" + query, timeout=900)
+    if status >= 300:
+        raise DockerUnavailable(_docker_reason(body, status))
+    for line in body.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        message = (event.get("errorDetail") or {}).get("message") or event.get("error")
+        if message:
+            raise DockerUnavailable(str(message)[:300])
+
+
+def _image_id(reference: str) -> str:
+    status, body = _docker("GET", "/images/" + urllib.parse.quote(reference, safe="") + "/json")
+    if status != 200:
+        return ""
+    return str(json.loads(body or b"{}").get("Id") or "")
+
+
+def update_panel() -> tuple[str, str]:
+    """Pull the latest panel image, recreate ``ol-panel`` and re-apply the gateway patch.
+
+    Returns ``(state, detail)`` where state is ``missing``, ``failed``, ``current``
+    or ``updated``; ``detail`` carries the patch warning when the panel runs but the
+    gateway route could not be written.
+    """
+    name = SERVICES["panel"]
+    with _PANEL_LOCK:
+        try:
+            status, body = _docker("GET", f"/containers/{name}/json")
+        except DockerUnavailable as exc:
+            return "failed", str(exc)
+        if status == 404:
+            return "missing", ""
+        if status != 200:
+            return "failed", _docker_reason(body, status)
+        info = json.loads(body or b"{}")
+        reference = str((info.get("Config") or {}).get("Image") or "ghcr.io/mhsanaei/3x-ui:latest")
+        repo, tag = split_image(reference)
+        try:
+            _pull_image(repo, tag)
+        except DockerUnavailable as exc:
+            return "failed", str(exc)
+
+        wanted = _image_id(f"{repo}:{tag}" if tag else repo)
+        if wanted and wanted == str(info.get("Image") or ""):
+            if (info.get("State") or {}).get("Status") != "running":
+                _docker("POST", f"/containers/{name}/start")
+            ok, detail = patch_panel_route()
+            return "current", "" if ok else detail
+
+        previous = f"{name}-update-{int(time.time())}"
+        status, body = _docker("POST", f"/containers/{name}/stop?t=15")
+        if status not in {204, 304}:
+            return "failed", _docker_reason(body, status)
+        status, body = _docker("POST", f"/containers/{name}/rename?name={previous}")
+        if status != 204:
+            _docker("POST", f"/containers/{name}/start")
+            return "failed", _docker_reason(body, status)
+
+        payload = clone_payload(info)
+        status, body = _docker("POST", f"/containers/create?name={name}", payload)
+        if status not in {200, 201}:
+            _docker("POST", f"/containers/{previous}/rename?name={name}")
+            _docker("POST", f"/containers/{name}/start")
+            return "failed", _docker_reason(body, status)
+        created = str(json.loads(body or b"{}").get("Id") or name)
+        status, body = _docker("POST", f"/containers/{created}/start", timeout=60)
+        if status not in {204, 304}:
+            _docker("DELETE", f"/containers/{created}?force=1")
+            _docker("POST", f"/containers/{previous}/rename?name={name}")
+            _docker("POST", f"/containers/{name}/start")
+            return "failed", _docker_reason(body, status)
+
+        ok, detail = False, "panel did not become ready"
+        deadline = time.monotonic() + 45
+        while time.monotonic() < deadline:
+            ok, detail = patch_panel_route()
+            if ok:
+                break
+            time.sleep(2)
+        _docker("DELETE", f"/containers/{previous}?force=1")
+        return "updated", "" if ok else detail
