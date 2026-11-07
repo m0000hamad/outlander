@@ -145,6 +145,18 @@ class OpenVPNTests(unittest.TestCase):
         self.assertTrue(any("prohibit" in args for args in events[:vpn_index]))
         self.assertFalse(any(args[0] == "xray" for args in events))
 
+    def test_ready_waits_for_the_same_docker_exec_to_finish(self):
+        inspections = iter([b'{"Running":true,"ExitCode":null}', b'{"Running":false,"ExitCode":0}'])
+        def api(method, path, payload=None):
+            if path.endswith("/exec"):
+                return 201, b'{"Id":"readiness-check"}'
+            if path.endswith("/start"):
+                return 200, b""
+            return 200, next(inspections)
+        with mock.patch.object(peers, "api", side_effect=api) as docker, mock.patch.object(peers, "_owned", return_value={"State": {"Running": True}}), mock.patch.object(openvpn.time, "sleep"):
+            openvpn.wait_ready(self.root, "vpn-container", "/tmp/openvpn-ready", 2)
+        self.assertEqual(sum(call.args[1].endswith("/exec") for call in docker.call_args_list), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

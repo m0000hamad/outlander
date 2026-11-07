@@ -106,14 +106,21 @@ def wait_ready(root: Path, name: str, marker: str, timeout: int):
         info = peers._owned(root, name)
         if not info or not info.get("State", {}).get("Running"):
             break
-        status, raw = peers.api("POST", f"/containers/{name}/exec", {"Cmd": ["python3", "-c",
+        status, raw = peers.api("POST", f"/containers/{name}/exec", {"AttachStdout": True, "AttachStderr": True, "Cmd": ["python3", "-c",
             f"import pathlib; raise SystemExit(0 if pathlib.Path({marker!r}).exists() else 1)"]})
         if status == 201:
             exec_id = json.loads(raw)["Id"]
             peers.api("POST", f"/exec/{exec_id}/start", {"Detach": False, "Tty": False})
-            status, raw = peers.api("GET", f"/exec/{exec_id}/json")
-            if status == 200 and json.loads(raw).get("ExitCode") == 0:
-                return
+            while time.monotonic() < deadline:
+                status, raw = peers.api("GET", f"/exec/{exec_id}/json")
+                execution = json.loads(raw) if status == 200 else {}
+                if status != 200:
+                    break
+                if not execution.get("Running"):
+                    if execution.get("ExitCode") == 0:
+                        return
+                    break
+                time.sleep(.05)
         time.sleep(.5)
     raise peers.PeerError("OpenVPN connection failed; check profile, credentials, server and firewall / اتصال OpenVPN ناموفق بود")
 
