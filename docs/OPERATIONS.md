@@ -113,10 +113,10 @@ The gateway SOCKS port is published on `127.0.0.1` only by default; uncomment th
 
 ## Removing Outlander
 
+Run this from any directory on the Ubuntu host:
+
 ```bash
-sudo bash scripts/uninstall.sh                  # containers, network, systemd unit, nftables, ufw, cron
-sudo bash scripts/uninstall.sh --purge-data     # + .env, inventory, panel db, certs, backups
-sudo bash scripts/uninstall.sh --purge-data --remove-dir --yes
+SCRIPT="$(sudo grep -rl --include='uninstall.sh' -- '--purge-peers' /opt /srv /root /home 2>/dev/null | head -n1)"; [ -n "$SCRIPT" ] && sudo bash "$SCRIPT" --purge-data --purge-peers --remove-dir --yes || echo "Outlander uninstall script not found"
 ```
 
 The script always removes: the five project containers, the `ol-core` network, the
