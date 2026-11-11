@@ -197,10 +197,10 @@ make console-logs
 
 ## ۹) حذف کامل
 
+این دستور را از هر مسیری روی سرور Ubuntu اجرا کنید. مسیر نصب را پیدا می‌کند و اوتلندر را همراه داده‌ها و همهٔ تونل‌های peer کاملاً حذف می‌کند:
+
 ```bash
-sudo bash scripts/uninstall.sh                  # فقط runtime: کانتینرها، شبکه، یونیت، فایروال، کران
-sudo bash scripts/uninstall.sh --purge-data     # + رمزها، دیتابیس پنل، سرتیفیکیت‌ها، بکاپ‌ها
-sudo bash scripts/uninstall.sh --purge-data --purge-peers --remove-dir --yes   # حذف کامل پوشه، بدون سؤال
+SCRIPT="$(sudo grep -rl --include='uninstall.sh' -- '--purge-peers' /opt /srv /root /home 2>/dev/null | head -n1)"; [ -n "$SCRIPT" ] && sudo bash "$SCRIPT" --purge-data --purge-peers --remove-dir --yes || echo "Outlander uninstall script not found"
 ```
 
 چه چیزی همیشه پاک می‌شود:
