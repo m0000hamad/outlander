@@ -67,11 +67,10 @@ For server migration, use **Backup / Restore** in the web console to export/impo
 
 ## Removing
 
+Run this from any directory on the Ubuntu host. It locates the installed checkout and performs a full removal, including data and peer tunnels:
+
 ```bash
-sudo bash scripts/uninstall.sh                # containers, network, systemd unit, firewall, cron
-sudo bash scripts/uninstall.sh --purge-data   # + secrets, panel database, certificates, backups
-sudo bash scripts/uninstall.sh --purge-data --remove-dir --yes   # delete the checkout too
-sudo bash scripts/uninstall.sh --purge-data --purge-peers --remove-dir --yes  # + all peer tunnels on this host
+SCRIPT="$(sudo grep -rl --include='uninstall.sh' -- '--purge-peers' /opt /srv /root /home 2>/dev/null | head -n1)"; [ -n "$SCRIPT" ] && sudo bash "$SCRIPT" --purge-data --purge-peers --remove-dir --yes || echo "Outlander uninstall script not found"
 ```
 
 Runtime state is always removed; `.env`, `config/`, `data/`, `certs/` and `backups/` are kept
