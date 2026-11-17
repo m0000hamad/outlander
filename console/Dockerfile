@@ -4,7 +4,7 @@ FROM python:3.12-slim-trixie
 RUN install_packages() { \
       apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o APT::Update::Error-Mode=any update \
       && apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 install -y --no-install-recommends \
-         nftables iptables ca-certificates certbot python3-certbot-dns-cloudflare openssh-client sshpass openssl; \
+         nftables iptables iproute2 ca-certificates certbot python3-certbot-dns-cloudflare openssh-client sshpass openssl; \
     }; \
     if ! install_packages; then \
       echo "Primary Debian repositories failed; retrying with fallback mirrors" >&2; \

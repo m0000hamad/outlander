@@ -512,6 +512,9 @@ class Handler(BaseHTTPRequestHandler):
         return "/", message, level
 
     def _forwarding_add(self, form: dict[str, str]) -> tuple[str, str, str]:
+        if form.get("mode") == "gre":
+            summary = ops.add_gre_forward(form)
+            return "/forwarding", self._tr("flash.forward_added", summary=summary), "ok"
         if form.get("mode") == "auto":
             summary = ops.add_auto_forward(form)
             return "/forwarding", self._tr("flash.forward_added", summary=summary), "ok"

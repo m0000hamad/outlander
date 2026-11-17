@@ -314,6 +314,14 @@ def outbounds(ctx: dict) -> str:
     return layout(t(lang, "ob.title"), body, "/outbounds", ctx["flash"], lang, ctx["csrf"])
 
 
+def gre_fields(lang: str, rule: dict) -> str:
+    fields = "".join(
+        f'<div class="field"><label>{esc(t(lang, "fw." + key))}</label>'
+        f'<input name="{key}" class="mono" value="{esc(rule.get(key, ""))}" placeholder="{example}"></div>'
+        for key, example in (("gre_local", "203.0.113.1"), ("gre_remote", "198.51.100.1"), ("gre_address", "10.255.0.1")))
+    return f'<div class="gre-fields row" hidden>{fields}<p class="tiny muted">{esc(t(lang, "fw.gre_note"))}</p></div>'
+
+
 def rule_editor(ctx: dict, index: int, rule: dict) -> str:
     lang = ctx["lang"]
     prefix = f"rule-edit-{index}"
@@ -321,7 +329,7 @@ def rule_editor(ctx: dict, index: int, rule: dict) -> str:
         choices = "".join(f'<option value="{esc(value)}" {"selected" if value == selected else ""}>{esc(title)}</option>'
                           for value, title in options)
         return f'<div class="field"><label for="{prefix}-{name}">{esc(label)}</label><select id="{prefix}-{name}" name="{name}">{choices}</select></div>'
-    modes = [(key, t(lang, "fw.mode_" + key)) for key in ("auto", "nft", "dokodemo", "peer")]
+    modes = [(key, t(lang, "fw.mode_" + key)) for key in ("auto", "nft", "dokodemo", "gre", "peer")]
     body = (f'<form class="rule-editor" method="post" action="/forwarding/update">{csrf_input(ctx["csrf"])}'
             f'<input type="hidden" name="index" value="{index}">'
             f'<input type="hidden" name="rule_token" value="{edit_token(rule)}">'
@@ -333,7 +341,7 @@ def rule_editor(ctx: dict, index: int, rule: dict) -> str:
         body += (f'<div class="field"><label for="{prefix}-{name}">{esc(t(lang, label))}</label>'
                  f'<input id="{prefix}-{name}" name="{name}" class="mono" value="{esc(rule.get(name, ""))}"'
                  f'{" required" if name != "listen_ip" else ""}></div>')
-    body += '</div><div class="row edit-peer-fields" style="margin-top:10px">'
+    body += '</div>' + gre_fields(lang, rule) + '<div class="row edit-peer-fields" style="margin-top:10px">'
     options = '<option value="">—</option>'
     for peer in ctx.get("peers", []):
         kinds = ",".join(k for k, p in peer.get("transports", {}).items() if p.get("status") == "ready")
@@ -455,11 +463,13 @@ def forwarding(ctx: dict) -> str:
         f'<option value="auto">{esc(t(lang, "fw.mode_auto"))}</option>'
         f'<option value="nft">{esc(t(lang, "fw.mode_nft"))}</option>'
         f'<option value="dokodemo">{esc(t(lang, "fw.mode_dokodemo"))}</option>'
+        f'<option value="gre">{esc(t(lang, "fw.mode_gre"))}</option>'
         f'<option value="peer">{esc(t(lang, "fw.mode_peer"))}</option></select></div>'
         f'<div class="field"><label>{esc(t(lang, "common.listen_ip"))}</label><input name="listen_ip" placeholder="203.0.113.5" class="mono"></div>'
         f'<div class="field"><label>{esc(t(lang, "fw.name"))}</label><input name="name" maxlength="100" placeholder="{esc(t(lang, "fw.name_example"))}"></div>'
         f'<div class="field"><label>{esc(t(lang, "fw.listen_port"))}</label><input name="listen" placeholder="443 / 50000-50100 / *" class="mono" required></div>'
         f'<div class="field"><label>{esc(t(lang, "common.target"))}</label><input name="target" placeholder="10.0.0.5:443" class="mono" required></div></div>'
+        + gre_fields(lang, {}) +
         f'<div class="row peer-fields" style="margin-bottom:12px" hidden><div class="field"><label for="forward-peer">{esc(t(lang, "peer.server"))}</label>'
         f'<select id="forward-peer" name="peer_id">{peer_options}</select></div>'
         f'<div class="field"><label for="forward-transport">{esc(t(lang, "peer.transport"))}</label><select id="forward-transport" name="transport">'
@@ -467,13 +477,13 @@ def forwarding(ctx: dict) -> str:
         f'<a href="/peers">{esc(t(lang, "peer.manage"))}</a></div>'
         f'<p class="tiny muted" style="margin:-2px 0 10px">{esc(t(lang, "fw.auto_note"))}</p>'
         f'<button class="btn" type="submit">{esc(t(lang, "fw.add_apply"))}</button></form></div>'
-        '<script>const mode=document.querySelector("select[name=mode]");'
+        '<script>function syncGre(form){const active=form.elements.mode.value==="gre";form.querySelector(".gre-fields").hidden=!active;for(const input of form.querySelectorAll(".gre-fields input"))input.required=active;}const mode=document.querySelector("select[name=mode]");'
         'const peerFields=document.querySelector(".peer-fields");'
         'const peerSelect=document.getElementById("forward-peer");const transportSelect=document.getElementById("forward-transport");'
         'function peerTransports(){const kinds=(peerSelect.selectedOptions[0]?.dataset.transports||"").split(",");'
         'for(const option of transportSelect.options){option.disabled=!kinds.includes(option.value)}'
         'if(transportSelect.selectedOptions[0]?.disabled){const first=[...transportSelect.options].find(o=>!o.disabled);if(first)transportSelect.value=first.value}}'
-        'function peerMode(){peerFields.hidden=mode.value!=="peer";'
+        'function peerMode(){peerFields.hidden=mode.value!=="peer";syncGre(mode.form);'
         'document.getElementById("forward-peer").required=mode.value==="peer";}'
         'mode.addEventListener("change",peerMode);peerSelect.addEventListener("change",peerTransports);peerMode();peerTransports();</script>'
     )
@@ -528,7 +538,7 @@ def forwarding(ctx: dict) -> str:
         f'{proxy_card}{cf_card}<div style="height:14px"></div>{add_card}<div style="height:14px"></div>{hop_card}{table}'
         '<script>document.querySelectorAll("form.rule-editor").forEach(form=>{'
         'const mode=form.elements.mode,peer=form.elements.peer_id,transport=form.elements.transport;'
-        'function sync(){const managed=mode.value==="peer";form.querySelector(".edit-peer-fields").hidden=!managed;'
+        'function sync(){syncGre(form);const managed=mode.value==="peer";form.querySelector(".edit-peer-fields").hidden=!managed;'
         'peer.required=managed;transport.required=managed;'
         'const kinds=(peer.selectedOptions[0]?.dataset.transports||"").split(",");'
         'for(const option of transport.options)option.disabled=managed&&!kinds.includes(option.value);'

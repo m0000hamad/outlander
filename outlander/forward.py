@@ -15,6 +15,8 @@ import re
 import socket
 from pathlib import Path
 
+from . import gre
+
 FORWARDING = Path("config/forwarding.json")
 NFT_OUTPUT = Path("config/nftables/outlander.nft")
 
@@ -29,13 +31,13 @@ PORT_RE = re.compile(r"^\d{1,5}(-\d{1,5})?$")
 IP_RE = re.compile(r"^[0-9a-fA-F:.]{2,45}$")
 TARGET_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.\-]{0,252}(:\d{1,5})?$")
 PROTOS = {"tcp", "udp", "both"}
-MODES = {"auto", "nft", "dokodemo", "peer"}
+MODES = {"auto", "nft", "dokodemo", "peer", "gre"}
 
 
 def edit_token(rule: dict) -> str:
     """Identify user-editable fields; automatic health updates must not stale a form."""
     fields = {key: rule.get(key, "") for key in
-              ("name", "proto", "listen", "listen_ip", "target", "mode", "peer_id", "transport", "peer_rule_id")}
+              ("name", "proto", "listen", "listen_ip", "target", "mode", "peer_id", "transport", "peer_rule_id", *gre.FIELDS)}
     fields["name"] = rule_name(fields["name"])
     fields["proto"] = fields["proto"] or "tcp"
     fields["mode"] = fields["mode"] or "nft"
@@ -132,7 +134,7 @@ def normalise_rule(rule: dict) -> dict:
         raise ValueError("proto must be tcp, udp or both")
     mode = (rule.get("mode") or "nft").strip().lower()
     if mode not in MODES:
-        raise ValueError("mode must be auto, nft, dokodemo or peer")
+        raise ValueError("mode must be auto, nft, dokodemo, peer or gre")
     listen = str(rule.get("listen") if rule.get("listen") is not None else rule.get("listen_port") or "").strip()
     if listen != "*" and not PORT_RE.match(listen):
         raise ValueError("listen must be a port, a range like 50000-50100, or *")
@@ -169,6 +171,8 @@ def normalise_rule(rule: dict) -> dict:
         "last_error": str(rule.get("last_error") or ""),
         "checked_at": str(rule.get("checked_at") or ""),
     }
+    if mode == "gre":
+        result.update(gre.validate(rule | {"target": target}))
     name = rule_name(rule.get("name"))
     if name:
         result["name"] = name
@@ -328,7 +332,7 @@ def nft_text(data: dict) -> str:
         )
     for raw in data.get("rules", []):
         rule = normalise_rule(raw)
-        if effective_mode(rule) != "nft":
+        if effective_mode(rule) not in {"nft", "gre"}:
             continue
         protos = ["tcp", "udp"] if rule["proto"] == "both" else [rule["proto"]]
         for proto in protos:
@@ -390,7 +394,7 @@ def docker_allows(data: dict) -> list[str]:
             commands.append(_allow_command(host, port, hop.get("proto", "udp")))
     for raw in data.get("rules", []):
         rule = normalise_rule(raw)
-        if effective_mode(rule) != "nft":
+        if effective_mode(rule) not in {"nft", "gre"}:
             continue
         host, _, port = resolve_target(rule["target"]).partition(":")
         if not host.startswith("172.28.60."):

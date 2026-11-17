@@ -11,7 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import forward, panel, render
+from . import forward, gre, panel, render
 from .uri import LinkError, parse
 
 VERSION = "1.0.0"
@@ -238,6 +238,8 @@ def cmd_forward_add(args: argparse.Namespace) -> int:
                 "listen": args.listen,
                 "listen_ip": args.listen_ip or "",
                 "target": args.target,
+                "mode": args.mode,
+                **{key: getattr(args, key) for key in gre.FIELDS},
             }
         )
     except ValueError as exc:
@@ -262,6 +264,11 @@ def cmd_forward_add(args: argparse.Namespace) -> int:
             f"{duplicate.get('target')})",
             file=sys.stderr,
         )
+        return 2
+    try:
+        gre.profiles(data | {"rules": data["rules"] + [rule]})
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
         return 2
     data["rules"].append(rule)
     forward.save(root, data)
@@ -393,6 +400,9 @@ def build_parser() -> argparse.ArgumentParser:
     fwd_add.add_argument("--listen", required=True, help="port, range like 50000-50100, or * for every port")
     fwd_add.add_argument("--listen-ip", help="only forward traffic arriving on this IP")
     fwd_add.add_argument("--target", required=True, help="host or host:port")
+    fwd_add.add_argument("--mode", choices=["nft", "gre"], default="nft", help="direct DNAT or GRE tunnel")
+    for key in gre.FIELDS:
+        fwd_add.add_argument("--" + key.replace("_", "-"), default="", help="GRE IPv4 address")
     fwd_add.add_argument("--force", action="store_true", help="allow a port that already has a listener (dangerous)")
     fwd_add.set_defaults(func=cmd_forward_add)
 
