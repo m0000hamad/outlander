@@ -23,7 +23,7 @@ ROOT = Path(os.environ.get("OUTLANDER_ROOT", "/repo")).resolve()
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from outlander import certs, forward, inbounds, panel, probe, render, tunnel  # noqa: E402
+from outlander import certs, forward, gre, inbounds, panel, probe, render, tunnel  # noqa: E402
 from outlander.uri import LinkError, parse  # noqa: E402
 from . import peers
 
@@ -501,8 +501,19 @@ def remove_peer_forward(index: int) -> None:
         raise peers.PeerError("Forward removed, but firewall apply failed / فوروارد حذف شد؛ اعمال فایروال ناموفق بود")
 
 
+@forward_transaction
+def add_gre_forward(form: dict[str, str]) -> str:
+    original = forward.load(ROOT)
+    rule = _edited_rule({}, form | {"mode": "gre"})
+    _validate_edit_ports({}, rule, original["rules"], original.get("hop", {}))
+    candidate = copy.deepcopy(original)
+    candidate["rules"].append(rule)
+    gre.profiles(candidate)
+    return _apply_forward_change(original, candidate, None, rule)
+
+
 def _edited_rule(old: dict, form: dict[str, str]) -> dict:
-    raw = {key: form.get(key, "") for key in ("proto", "listen", "listen_ip", "target", "mode")}
+    raw = {key: form.get(key, "") for key in ("proto", "listen", "listen_ip", "target", "mode", *gre.FIELDS)}
     raw["name"] = form.get("name", old.get("name", ""))
     if raw["mode"] == "peer":
         raw.update(peer_id=form.get("peer_id", ""), transport=form.get("transport", ""),
@@ -533,7 +544,7 @@ def _edited_rule(old: dict, form: dict[str, str]) -> dict:
             raise peers.PeerError("Neither path is reachable; previous rule unchanged / هیچ مسیر سالمی پیدا نشد؛ قانون قبلی تغییر نکرد")
         _assign_decision(rule, decision, detail)
     else:
-        rule["resolved"] = "dokodemo" if rule["mode"] == "dokodemo" else "nft"
+        rule["resolved"] = rule["mode"]
     return rule
 
 
@@ -594,7 +605,7 @@ def update_forward(index: int, token: str, form: dict[str, str]) -> str:
     if not token or not secrets.compare_digest(token, forward.edit_token(old)):
         raise peers.PeerError("Rule changed; refresh before editing / قانون تغییر کرده؛ صفحه را تازه کنید")
     # Metadata-only edits must not probe, rebuild tunnels or reset usage counters.
-    fields = {key: str(old.get(key) or "") for key in ("proto", "listen", "listen_ip", "target", "mode")}
+    fields = {key: str(old.get(key) or "") for key in ("proto", "listen", "listen_ip", "target", "mode", *gre.FIELDS)}
     fields.update(proto=old.get("proto") or "tcp", mode=old.get("mode") or "nft")
     if fields["mode"] == "peer":
         fields.update({key: str(old.get(key) or "") for key in ("peer_id", "transport")})
@@ -622,6 +633,7 @@ def _apply_forward_change(original: dict, candidate: dict, old: dict | None, rul
     """One rollback-capable path for manual edits and automatic failover."""
     _assert_not_self_forward(rule)
     env_values = env()
+    gre.profiles(candidate)
     legacy_changed = tunnel.config(original, env_values) != tunnel.config(candidate, env_values)
     old_peer_removed = new_peer_created = legacy_touched = False
     try:
@@ -753,6 +765,10 @@ def apply_forwarding() -> tuple[bool, str]:
         return False, "forwarding rules were not rendered yet"
     if not shutil.which("nft"):
         return False, "nft is not available in the console container"
+    try:
+        gre.apply(ROOT, forward.load(ROOT))
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+        return False, str(exc)
     result = subprocess.run(["nft", "-f", str(nft_file)], capture_output=True, text=True)
     if result.returncode != 0:
         return False, (result.stderr or result.stdout).strip()
@@ -762,6 +778,10 @@ def apply_forwarding() -> tuple[bool, str]:
     check = subprocess.run(["nft", "list", "table", "ip", "outlander"], capture_output=True, text=True)
     if check.returncode != 0:
         return False, check.stderr.strip()
+    try:
+        gre.apply(ROOT, forward.load(ROOT), cleanup=True)
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+        return False, str(exc)
     return True, "firewall rules applied"
 
 

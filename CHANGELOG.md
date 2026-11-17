@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add an explicit GRE forwarding path beside direct, Dokodemo and managed peer modes, with bilingual creation/edit forms and CLI flags. Validate outer/inner IPv4 addresses, share owned kernel interfaces across compatible rules, render TCP/UDP DNAT through the tunnel, restore interfaces on boot, and remove stale owned interfaces on rule deletion/uninstall. GRE stays outside automatic encrypted-path selection. Remote GRE setup and protocol 47 firewall access remain operator prerequisites; GRE does not provide encryption.
+
 - Add optional forward names (up to 100 characters) to creation, editing and the forwarding table for all route types. Preserve names through automatic failover and portable backups. Name-only edits save metadata without probing or restarting tunnels, changing firewall rules or resetting usage; include names in edit tokens to reject stale edits.
 
 - Show sent, received and total IP bytes for each forwarding row, with manual refresh and automatic polling every five seconds. Account on the client-facing connection for direct DNAT, gateway and managed peer routes using an independent nftables counter table without counting the encrypted tunnel leg twice or changing traffic verdicts.

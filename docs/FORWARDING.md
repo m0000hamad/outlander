@@ -3,7 +3,7 @@
 ## Editing active rules
 
 Open **Forwarding → Active rules → Edit**. The editor is prefilled and supports
-protocol, mode (Direct/Auto/Dokodemo/managed peer), listen IP/port, destination,
+protocol, mode (Direct/Auto/Dokodemo/GRE/managed peer), listen IP/port, destination,
 peer server and prepared transport. **Save and apply** replaces the same row;
 **Cancel** closes the editor without changing the rule. Runtime health fields are
 computed automatically rather than edited manually.
@@ -197,3 +197,7 @@ sudo nft list ruleset | grep -A3 outlander
 timeout 3 nc -zuv <server-ip> 25000     # hop range should be filtered/closed from outside
 ss -lunp | grep -E '8443|8444'
 ```
+## GRE
+
+The Forwarding page also offers **GRE tunnel** beside Dokodemo. See
+[GRE setup, remote configuration and upgrade steps](GRE.md).

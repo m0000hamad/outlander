@@ -13,6 +13,7 @@ if [[ ! -f config/nftables/outlander.nft ]]; then
   python3 -m outlander forward render
 fi
 
+python3 -m outlander.gre
 nft -f config/nftables/outlander.nft
 echo "nftables rules loaded"
 

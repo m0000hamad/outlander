@@ -146,6 +146,10 @@ if [[ -f /etc/systemd/system/outlander-forward.service ]]; then
 fi
 rm -f /etc/systemd/system/outlander-forward.service.d/override.conf >/dev/null 2>&1 || true
 
+if command -v ip >/dev/null 2>&1; then
+  (cd "$ROOT" && python3 -m outlander.gre --clean) || echo "warning: GRE cleanup failed"
+fi
+
 # --- nftables ------------------------------------------------------------
 if command -v nft >/dev/null 2>&1; then
   nft delete table inet outlander_usage >/dev/null 2>&1 || true

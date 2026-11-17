@@ -31,7 +31,7 @@ say() { printf '\033[36m==>\033[0m %s\n' "$*"; }
 say "installing packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq ca-certificates curl jq nftables sqlite3 python3 openssl ufw unzip make cron >/dev/null
+apt-get install -y -qq ca-certificates curl jq nftables iproute2 sqlite3 python3 openssl ufw unzip make cron >/dev/null
 
 if ! command -v docker >/dev/null 2>&1; then
   say "installing docker"
@@ -164,6 +164,8 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+WorkingDirectory=${ROOT}
+ExecStartPre=/usr/bin/python3 -m outlander.gre
 ExecStart=/usr/sbin/nft -f ${ROOT}/config/nftables/outlander.nft
 ExecStartPost=/bin/bash ${ROOT}/config/nftables/docker-allow.sh
 
